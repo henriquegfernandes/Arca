@@ -5,10 +5,9 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "C#: Debug Active File",
+            "name": "C#: Launch Startup Project",
             "type": "dotnet",
-            "request": "launch",
-            "projectPath": "${file}"
+            "request": "launch"
         }
     ]
 }

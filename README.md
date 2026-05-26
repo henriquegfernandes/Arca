@@ -31,9 +31,30 @@ This repository starts Arca with Clean Architecture boundaries and PostgreSQL + 
 - `ICurrentUserService`, `IPermissionService` and `ITenantAccessService` abstractions with initial implementations.
 - Minimal `/login`, `/logout`, `/` and `/health` routes for end-to-end testing.
 
+## Stage 3 delivered
+
+- Docker Compose PostgreSQL service for local development.
+- Development connection string now targets the Docker PostgreSQL instance on `localhost:5433`.
+- Tenant setup schema migration (`003_tenant_setup_schema.sql`) for:
+  - tenant contact/setup fields;
+  - stock locations;
+  - initial catalog configuration tables;
+  - audit logs.
+- `TenantSetupService` application orchestration.
+- `CatalogTemplateSeeder` with initial templates for `Fashion`, `Shoes`, `Electronics`, `ReligiousGoods`, `FoodBakery`, `SnackBarRestaurant`, `Market` and `Custom`.
+- Tenant administrator provisioning with Argon2id password hash.
+- Dapper transactional setup repository.
+- SuperAdmin-protected endpoint: `POST /api/admin/tenants/setup`.
+
 ## Local development
 
 The solution targets `net10.0` to match the local SDK/runtime.
+
+Start PostgreSQL:
+
+```bash
+docker compose up -d postgres
+```
 
 Run the admin Web app:
 
@@ -43,6 +64,45 @@ ASPNETCORE_ENVIRONMENT=Development ASPNETCORE_URLS=http://localhost:5285 dotnet 
 
 In Development, the app uses:
 
-- PostgreSQL connection: `Host=localhost;Port=5432;Database=arca;Username=postgres;Password=postgres`
+- PostgreSQL connection: `Host=localhost;Port=5433;Database=arca;Username=postgres;Password=postgres`
 - Login: `admin@arca.local`
 - Password: `ChangeMe!12345`
+
+Create a tenant setup after signing in as SuperAdmin by posting JSON to:
+
+```text
+POST http://localhost:5285/api/admin/tenants/setup
+```
+
+The endpoint is protected by cookie authentication, SuperAdmin authorization and antiforgery validation.
+
+## Stage 4 delivered
+
+- Product catalog schema migration (`004_product_catalog_schema.sql`) for:
+  - products;
+  - product attribute assignments;
+  - selected variant options;
+  - product variants;
+  - variant attribute values;
+  - store-specific variant availability/pricing base table.
+- `ProductVariantGenerator` with cartesian variant generation.
+- SKU generation from `BaseSku + attribute value codes`.
+- Duplicate SKU filtering during preview/create.
+- Product catalog service and Dapper repository.
+- Admin endpoints:
+  - `POST /api/admin/catalog/variants/preview`
+  - `POST /api/admin/catalog/products`
+
+Example variant generation:
+
+```text
+BaseSku: CAM-SB
+Color: PRE, BRA
+Size: P, M
+
+Generated:
+CAM-SB-PRE-P
+CAM-SB-PRE-M
+CAM-SB-BRA-P
+CAM-SB-BRA-M
+```

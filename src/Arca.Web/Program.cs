@@ -1,6 +1,7 @@
-using System.Security.Claims;
 using Arca.Application.Auth;
+using Arca.Application.Catalog;
 using Arca.Application.Security;
+using Arca.Application.Tenancy;
 using Arca.Infrastructure;
 using Arca.Infrastructure.Database;
 using Arca.Infrastructure.Seed;
@@ -19,6 +20,11 @@ builder.Services.AddControllersWithViews(options =>
 builder.Services.AddHealthChecks();
 builder.Services.AddInfrastructure();
 builder.Services.AddScoped<AuthenticateUserUseCase>();
+builder.Services.AddScoped<TenantSetupService>();
+builder.Services.AddScoped<UserProvisioningService>();
+builder.Services.AddScoped<CatalogTemplateSeeder>();
+builder.Services.AddScoped<ProductCatalogService>();
+builder.Services.AddSingleton<IProductVariantGenerator, ProductVariantGenerator>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
