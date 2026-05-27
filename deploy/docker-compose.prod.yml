@@ -1,0 +1,60 @@
+services:
+  arca-web:
+    image: arca-web:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile.web
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      Secrets__KeyPerFile__Enabled: "true"
+      Secrets__KeyPerFile__Path: /run/secrets
+      Database__ApplyMigrationsOnStartup: "true"
+      Database__CreateDatabaseIfMissing: "false"
+      Storage__Provider: S3
+      Storage__S3__ForcePathStyle: "true"
+      Storage__S3__ServiceUrl: ""
+      Storage__S3__PublicBaseUrl: ""
+      RateLimiting__Admin__PermitLimit: "300"
+      RateLimiting__Admin__WindowMinutes: "1"
+      RateLimiting__Auth__PermitLimit: "20"
+      RateLimiting__Auth__WindowMinutes: "1"
+    ports:
+      - "8080:8080"
+    secrets:
+      - ConnectionStrings__DefaultConnection
+      - Storage__S3__BucketName
+      - Storage__S3__Region
+      - Storage__S3__AccessKey
+      - Storage__S3__SecretKey
+    restart: unless-stopped
+
+  arca-api:
+    image: arca-api:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile.api
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      Secrets__KeyPerFile__Enabled: "true"
+      Secrets__KeyPerFile__Path: /run/secrets
+      RateLimiting__ExternalApi__PermitLimit: "120"
+      RateLimiting__ExternalApi__WindowMinutes: "1"
+    ports:
+      - "8081:8080"
+    secrets:
+      - ConnectionStrings__DefaultConnection
+    restart: unless-stopped
+
+secrets:
+  ConnectionStrings__DefaultConnection:
+    file: ./secrets/ConnectionStrings__DefaultConnection
+  Storage__S3__BucketName:
+    file: ./secrets/Storage__S3__BucketName
+  Storage__S3__Region:
+    file: ./secrets/Storage__S3__Region
+  Storage__S3__AccessKey:
+    file: ./secrets/Storage__S3__AccessKey
+  Storage__S3__SecretKey:
+    file: ./secrets/Storage__S3__SecretKey

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: arca-config
+  namespace: arca
+data:
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_URLS: "http://+:8080"
+  Secrets__KeyPerFile__Enabled: "false"
+  Database__ApplyMigrationsOnStartup: "true"
+  Database__CreateDatabaseIfMissing: "false"
+  Storage__Provider: "S3"
+  Storage__S3__ForcePathStyle: "true"
+  RateLimiting__Admin__PermitLimit: "300"
+  RateLimiting__Admin__WindowMinutes: "1"
+  RateLimiting__Auth__PermitLimit: "20"
+  RateLimiting__Auth__WindowMinutes: "1"
+  RateLimiting__ExternalApi__PermitLimit: "120"
+  RateLimiting__ExternalApi__WindowMinutes: "1"

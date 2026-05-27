@@ -1,0 +1,16 @@
+**/bin/
+**/obj/
+**/.vs/
+**/.vscode/
+**/node_modules/
+**/dist/
+**/coverage/
+**/TestResults/
+**/*.user
+**/*.suo
+**/*.log
+.git/
+.gitignore
+.env
+deploy/secrets/
+src/Arca.Web/wwwroot/uploads/

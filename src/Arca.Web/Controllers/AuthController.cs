@@ -5,12 +5,14 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace Arca.Web.Controllers;
 
 public sealed class AuthController(AuthenticateUserUseCase authenticateUser) : Controller
 {
     [AllowAnonymous]
+    [EnableRateLimiting("auth")]
     [HttpGet("/login")]
     public IActionResult Login(string? returnUrl = null)
     {
@@ -23,6 +25,7 @@ public sealed class AuthController(AuthenticateUserUseCase authenticateUser) : C
     }
 
     [AllowAnonymous]
+    [EnableRateLimiting("auth")]
     [HttpPost("/login")]
     public async Task<IActionResult> Login(LoginViewModel model, CancellationToken cancellationToken)
     {

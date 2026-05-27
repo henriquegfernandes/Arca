@@ -1,0 +1,22 @@
+FROM node:24-alpine AS web-client
+WORKDIR /src/src/Arca.Web/ClientApp
+COPY src/Arca.Web/ClientApp/package*.json ./
+RUN npm ci
+COPY src/Arca.Web/ClientApp ./
+RUN npm run build
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+COPY Arca.sln ./
+COPY src ./src
+COPY tests ./tests
+COPY --from=web-client /src/src/Arca.Web/wwwroot/admin ./src/Arca.Web/wwwroot/admin
+RUN dotnet restore Arca.sln
+RUN dotnet publish src/Arca.Web/Arca.Web.csproj -c Release -o /app/publish /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 8080
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "Arca.Web.dll"]

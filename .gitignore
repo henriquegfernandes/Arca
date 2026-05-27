@@ -43,6 +43,13 @@ ScaffoldingReadMe.txt
 ~$*
 *~
 CodeCoverage/
+src/Arca.Web/wwwroot/uploads/*
+!src/Arca.Web/wwwroot/uploads/.gitkeep
+src/Arca.Web/ClientApp/node_modules/
+src/Arca.Web/wwwroot/admin/
+deploy/secrets/*
+!deploy/secrets/.gitkeep
+!deploy/secrets/README.md
 
 # MSBuild Binary and Structured Log
 *.binlog
