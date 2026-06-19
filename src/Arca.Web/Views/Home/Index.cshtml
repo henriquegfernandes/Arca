@@ -1,0 +1,20 @@
+@{
+    ViewData["Title"] = "Arca Admin";
+}
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Arca Admin</title>
+    <meta name="arca-user-name" content="@User.Identity?.Name" />
+    <meta name="arca-csrf-token" content="@Antiforgery.GetAndStoreTokens(Context).RequestToken" />
+    <link rel="stylesheet" href="/admin/assets/index.css" />
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module" src="/admin/assets/app.js"></script>
+</body>
+</html>

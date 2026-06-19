@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arca-web
+  namespace: arca
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: arca-web
+  template:
+    metadata:
+      labels:
+        app: arca-web
+    spec:
+      containers:
+        - name: arca-web
+          image: ghcr.io/your-org/arca-web:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: arca-config
+            - secretRef:
+                name: arca-secrets
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

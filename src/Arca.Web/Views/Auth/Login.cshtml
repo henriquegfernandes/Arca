@@ -1,0 +1,46 @@
+@model Arca.Web.Models.LoginViewModel
+
+@{
+    Layout = null;
+}
+
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Arca Admin Login</title>
+    <link rel="stylesheet" href="/css/auth.css" />
+</head>
+<body>
+    <main class="auth-shell">
+        <div class="auth-logo-wrap">
+            <img class="auth-logo" src="/images/arca-public-logo.svg" alt="Arca Inventory Management Platform" />
+        </div>
+
+        <section class="auth-card">
+        <p>Sign in to the admin panel.</p>
+
+        @if (TempData["SetupMessage"] is string setupMessage)
+        {
+            <div class="notice-success">@setupMessage</div>
+        }
+
+        <form method="post" action="/login">
+            @Html.AntiForgeryToken()
+            @Html.HiddenFor(model => model.ReturnUrl)
+            @Html.ValidationSummary(excludePropertyErrors: true)
+
+            <label for="Email">Email</label>
+            <input id="Email" name="Email" type="email" value="@Model.Email" autocomplete="email" required />
+
+            <label for="Password">Password</label>
+            <input id="Password" name="Password" type="password" autocomplete="current-password" required />
+
+            <button type="submit">Sign in</button>
+            <a class="secondary-link" href="/setup">Create a new company account</a>
+        </form>
+        </section>
+    </main>
+</body>
+</html>

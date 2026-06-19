@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: arca-postgres
+    environment:
+      POSTGRES_DB: arca
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - arca_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d arca"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  arca_postgres_data:

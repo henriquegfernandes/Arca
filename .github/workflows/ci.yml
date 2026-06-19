@@ -1,0 +1,55 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.x"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Restore npm dependencies
+        run: npm ci
+        working-directory: src/Arca.Web/ClientApp
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: src/Arca.Web/ClientApp
+
+      - name: Build backend
+        run: dotnet build --configuration Release
+
+      - name: Run tests
+        run: dotnet test --configuration Release
+        env:
+          ARCA_TEST_ADMIN_CONNECTION: "Host=localhost;Port=5433;Database=postgres;Username=postgres;Password=postgres;Include Error Detail=true"
