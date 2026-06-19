@@ -83,10 +83,13 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
+      # Porta HTTPS externa (Nginx); evita o aviso "Failed to determine the https port"
+      # e garante que o redirect middleware funcione corretamente com X-Forwarded-Proto
+      ASPNETCORE_HTTPS_PORT: "443"
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
 
       # Banco de dados
-      ConnectionStrings__DefaultConnection: >-
-        Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
 
       # Migrations automáticas na subida
       Database__ApplyMigrationsOnStartup: "true"
@@ -125,6 +128,8 @@ services:
 
       # Desativar carregamento de secrets por arquivo (usamos env vars)
       Secrets__KeyPerFile__Enabled: "false"
+    volumes:
+      - dataprotection_keys:/root/.aspnet/DataProtection-Keys
     ports:
       - "8080:8080"
     depends_on:
@@ -155,9 +160,10 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
+      ASPNETCORE_HTTPS_PORT: "443"
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
 
-      ConnectionStrings__DefaultConnection: >-
-        Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
 
       RateLimiting__ExternalApi__PermitLimit: "120"
       RateLimiting__ExternalApi__WindowMinutes: "1"
@@ -191,3 +197,4 @@ networks:
 volumes:
   postgres_data:
   minio_data:
+  dataprotection_keys:
