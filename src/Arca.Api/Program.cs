@@ -1,9 +1,15 @@
 using System.Threading.RateLimiting;
 using Arca.Api.Middlewares;
 using Arca.Infrastructure;
+using Arca.Infrastructure.Database;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseSerilog((context, config) =>
+    config.ReadFrom.Configuration(context.Configuration));
+
 AddKeyPerFileSecrets(builder.Configuration, builder.Environment);
 
 if (!builder.Environment.IsDevelopment())
@@ -18,7 +24,8 @@ builder.WebHost.ConfigureKestrel(options =>
 });
 
 builder.Services.AddControllers();
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .AddCheck<ApiDatabaseHealthCheck>("database");
 builder.Services.AddInfrastructure();
 builder.Services.AddScoped<IExternalApiClientContextAccessor, ExternalApiClientContextAccessor>();
 builder.Services.Configure<ForwardedHeadersOptions>(options =>

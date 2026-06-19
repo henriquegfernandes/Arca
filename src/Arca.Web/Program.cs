@@ -1,6 +1,9 @@
 using System.Threading.RateLimiting;
+using Arca.Application.AuditLog;
 using Arca.Application.Auth;
 using Arca.Application.Catalog;
+using Arca.Application.Dashboard;
+using Arca.Application.Export;
 using Arca.Application.ExternalApi;
 using Arca.Application.Inventory;
 using Arca.Application.Security;
@@ -15,8 +18,11 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseSerilog((context, config) =>
+    config.ReadFrom.Configuration(context.Configuration));
 AddKeyPerFileSecrets(builder.Configuration, builder.Environment);
 
 if (!builder.Environment.IsDevelopment())
@@ -35,9 +41,11 @@ builder.Services.AddControllersWithViews(options =>
     options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
 });
 
-builder.Services.AddHealthChecks();
+builder.Services.AddHealthChecks()
+    .AddCheck<Arca.Web.Health.DatabaseHealthCheck>("database");
 builder.Services.AddInfrastructure();
 builder.Services.AddScoped<AuthenticateUserUseCase>();
+builder.Services.AddScoped<PasswordSetupService>();
 builder.Services.AddScoped<TenantSetupService>();
 builder.Services.AddScoped<TenantManagementService>();
 builder.Services.AddScoped<UserManagementService>();
@@ -48,9 +56,15 @@ builder.Services.AddScoped<ProductCatalogService>();
 builder.Services.AddScoped<CatalogManagementService>();
 builder.Services.AddScoped<ProductImageService>();
 builder.Services.AddScoped<InventoryService>();
+builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<ApiClientService>();
+builder.Services.AddScoped<AuditLogService>();
+builder.Services.AddScoped<CsvExportService>();
 builder.Services.AddSingleton<IProductVariantGenerator, ProductVariantGenerator>();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<TenantStoreRequestContext>();
+builder.Services.AddScoped<ICurrentTenantService>(provider => provider.GetRequiredService<TenantStoreRequestContext>());
+builder.Services.AddScoped<ICurrentStoreService>(provider => provider.GetRequiredService<TenantStoreRequestContext>());
 builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -141,6 +155,7 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseStaticFiles();
 app.UseRateLimiter();
 app.UseAuthentication();
+app.UseMiddleware<TenantStoreContextMiddleware>();
 app.UseAuthorization();
 app.MapHealthChecks("/health");
 app.MapControllers().RequireRateLimiting("admin");

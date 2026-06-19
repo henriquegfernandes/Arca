@@ -1,4 +1,5 @@
 export type StoreDraft = {
+  id?: string;
   name: string;
   code: string;
   document: string;
@@ -58,6 +59,69 @@ export type Pagination = {
   totalPages: number;
 };
 
+export type CurrentUserContext = {
+  id: string;
+  fullName: string;
+  email: string;
+  isSuperAdmin: boolean;
+  roles: string[];
+  permissions: string[];
+};
+
+export type TenantContext = {
+  id: string;
+  name: string;
+  slug: string;
+  primaryStoreId: string | null;
+};
+
+export type StoreContext = {
+  id: string;
+  tenantId: string;
+  name: string;
+  code: string;
+};
+
+export type UserAppContext = {
+  currentUser: CurrentUserContext;
+  currentTenant: TenantContext | null;
+  currentStore: StoreContext | null;
+  availableTenants: TenantContext[];
+  availableStores: StoreContext[];
+};
+
+export type DashboardMetric = {
+  key: string;
+  label: string;
+  value: number;
+  hint: string | null;
+};
+
+export type DashboardInventorySnapshot = {
+  totalQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  lowStockProducts: number;
+  outOfStockProducts: number;
+};
+
+export type DashboardRecentMovement = {
+  id: string;
+  type: string;
+  quantity: number;
+  productName: string;
+  variantSku: string;
+  storeName: string | null;
+  createdAt: string;
+};
+
+export type DashboardSummary = {
+  scope: string;
+  metrics: DashboardMetric[];
+  inventory: DashboardInventorySnapshot;
+  recentMovements: DashboardRecentMovement[];
+};
+
 export type ApiClient = {
   id: string;
   tenantId: string;
@@ -82,12 +146,31 @@ export type TenantSummary = {
   slug: string;
   contactEmail: string | null;
   mainSegment: string | null;
+  primaryStoreId: string | null;
   isActive: boolean;
   setupStatus: string;
   currency: string;
   timeZone: string;
   storeCount: number;
   createdAt: string;
+};
+
+export type TenantDetails = {
+  id: string;
+  name: string;
+  legalName: string | null;
+  document: string | null;
+  slug: string;
+  contactEmail: string | null;
+  phone: string | null;
+  mainSegment: string | null;
+  primaryStoreId: string | null;
+  isActive: boolean;
+  setupStatus: string;
+  settings: TenantSetupDraft["settings"];
+  stores: StoreSummary[];
+  createdAt: string;
+  updatedAt: string | null;
 };
 
 export type StoreSummary = {
@@ -235,6 +318,7 @@ export type ProductSummary = {
   barcode: string | null;
   brand: string | null;
   status: string;
+  mainImageUrl: string | null;
   variantCount: number;
   createdAt: string;
 };
@@ -267,6 +351,13 @@ export type ProductVariant = {
   defaultCostPrice: number | null;
   status: string;
   createdAt: string;
+  attributes?: Array<{
+    productAttributeId: string;
+    attributeName: string;
+    productAttributeValueId: string;
+    valueName: string;
+    code: string;
+  }>;
 };
 
 export type ProductImage = {
@@ -303,6 +394,62 @@ export type InventoryBalance = {
   availableQuantity: number;
   minimumStock: number;
   updatedAt: string | null;
+};
+
+export type VariantAttribute = {
+  attributeName: string;
+  valueName: string;
+  code: string;
+};
+
+export type InventoryVariant = {
+  productVariantId: string;
+  sku: string;
+  name: string;
+  barcode: string | null;
+  attributes: VariantAttribute[];
+  quantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  minimumStock: number;
+  isLowStock: boolean;
+  isOutOfStock: boolean;
+  status: string;
+};
+
+export type InventoryProductSummary = {
+  productId: string;
+  name: string;
+  baseSku: string;
+  categoryName: string | null;
+  mainImageUrl: string | null;
+  totalQuantity: number;
+  totalReservedQuantity: number;
+  totalAvailableQuantity: number;
+  variantCount: number;
+  hasLowStock: boolean;
+  isOutOfStock: boolean;
+  status: string;
+};
+
+export type InventoryProductDetails = InventoryProductSummary & {
+  description: string | null;
+  variants: InventoryVariant[];
+};
+
+export type AuditLogEntry = {
+  id: string;
+  userId: string | null;
+  tenantId: string | null;
+  storeId: string | null;
+  action: string;
+  entityName: string;
+  entityId: string | null;
+  oldValue: string | null;
+  newValue: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
 };
 
 export type StockMovement = {

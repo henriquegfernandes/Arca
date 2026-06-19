@@ -1,12 +1,13 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Field } from "./Field";
 import { Toggle } from "./Toggle";
 import { slugify, normalizeStoreCode, addRequired, addEmail, addPattern } from "../utils/validation";
 import { api } from "../api";
-import type { TenantSetupDraft, StoreDraft, ValidationErrors } from "../types";
+import type { TenantDetails, TenantSetupDraft, StoreDraft, ValidationErrors } from "../types";
 
-const steps = ["Company", "Settings", "Stores", "Admin", "Catalog", "Review"];
+const createSteps = ["Company", "Settings", "Stores", "Admin", "Catalog", "Review"];
+const editSteps = ["Company", "Settings", "Stores", "Review"];
 
 const initialStore: StoreDraft = {
   name: "Matriz",
@@ -37,29 +38,49 @@ const initialDraft: TenantSetupDraft = {
   catalog: { template: "Fashion" },
 };
 
-export function TenantSetupWizard() {
+export function TenantSetupWizard({
+  mode = "create",
+  tenant,
+  onCompleted,
+}: {
+  mode?: "create" | "edit";
+  tenant?: TenantDetails | null;
+  onCompleted?: () => void;
+}) {
+  const wizardSteps = mode === "edit" ? editSteps : createSteps;
   const [step, setStep] = useState(0);
-  const [draft, setDraft] = useState<TenantSetupDraft>(initialDraft);
+  const [draft, setDraft] = useState<TenantSetupDraft>(() => tenant ? tenantToDraft(tenant) : initialDraft);
+  const [primaryStoreId, setPrimaryStoreId] = useState(tenant?.primaryStoreId ?? tenant?.stores[0]?.id ?? "");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [errors, setErrors] = useState<ValidationErrors>({});
+
+  useEffect(() => {
+    if (!tenant) return;
+    setDraft(tenantToDraft(tenant));
+    setPrimaryStoreId(tenant.primaryStoreId ?? tenant.stores[0]?.id ?? "");
+    setStep(0);
+    setErrors({});
+    setMessage(null);
+  }, [tenant?.id]);
 
   const summary = useMemo(
     () => [
       { label: "Company", value: draft.company.name || "Not set" },
       { label: "Slug", value: draft.company.slug || "Not set" },
       { label: "Stores", value: String(draft.stores.length) },
-      { label: "Catalog", value: draft.catalog.template },
+      { label: "Primary Store", value: draft.stores.find((store) => store.id === primaryStoreId)?.name ?? "Not set" },
+      ...(mode === "create" ? [{ label: "Catalog", value: draft.catalog.template }] : []),
     ],
-    [draft]
+    [draft, mode, primaryStoreId]
   );
 
   async function submitTenantSetup() {
-    const validation = validateAllSteps(draft);
+    const validation = validateAllSteps(draft, mode);
     if (!validation.isValid) {
       setErrors(validation.errors);
       setStep(validation.firstInvalidStep);
-      setMessage("Review the highlighted fields before creating the tenant.");
+      setMessage(`Review the highlighted fields before ${mode === "edit" ? "updating" : "creating"} the tenant.`);
       return;
     }
 
@@ -67,13 +88,24 @@ export function TenantSetupWizard() {
     setMessage(null);
 
     try {
-      const payload = await api.tenants.setup(draft);
-      setMessage(`Tenant created: ${payload.tenantId}`);
-      setDraft(initialDraft);
-      setStep(0);
+      if (mode === "edit" && tenant) {
+        await api.tenants.update(tenant.id, {
+          company: draft.company,
+          settings: draft.settings,
+          primaryStoreId: primaryStoreId || null,
+        });
+        setMessage("Tenant updated.");
+      } else {
+        const payload = await api.tenants.setup(draft);
+        setMessage(`Tenant created: ${payload.tenantId}`);
+        setDraft(initialDraft);
+        setPrimaryStoreId("");
+        setStep(0);
+      }
       setErrors({});
+      onCompleted?.();
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : "Tenant setup failed.");
+      setMessage(err instanceof Error ? err.message : mode === "edit" ? "Tenant update failed." : "Tenant setup failed.");
     } finally {
       setIsSubmitting(false);
     }
@@ -83,9 +115,10 @@ export function TenantSetupWizard() {
     setMessage(null);
     if (nextStep <= step) {
       setStep(nextStep);
+      setErrors({});
       return;
     }
-    const validation = validateStepsBefore(nextStep, draft);
+    const validation = validateStepsBefore(nextStep, draft, mode);
     setErrors(validation.errors);
     if (!validation.isValid) {
       setStep(validation.firstInvalidStep);
@@ -93,32 +126,59 @@ export function TenantSetupWizard() {
       return;
     }
     setStep(nextStep);
+    setErrors({});
+  }
+
+  function hasStepErrors(stepIndex: number): boolean {
+    const validation = validateStep(stepIndex, draft, mode);
+    return !validation.isValid;
+  }
+
+  function canAccessStep(stepIndex: number): boolean {
+    if (stepIndex <= step) return true;
+    for (let i = 0; i < stepIndex; i++) {
+      if (hasStepErrors(i)) return false;
+    }
+    return true;
   }
 
   function goNext() {
-    const validation = validateStep(step, draft);
+    const validation = validateStep(step, draft, mode);
     setErrors(validation.errors);
     setMessage(null);
     if (!validation.isValid) {
       setMessage("Complete the required fields before moving forward.");
       return;
     }
-    setStep(Math.min(steps.length - 1, step + 1));
+    setStep(Math.min(wizardSteps.length - 1, step + 1));
+    setErrors({});
   }
 
   return (
     <div className="tenant-workflow">
       <div className="step-rail" aria-label="Tenant setup progress">
-        {steps.map((label, index) => (
-          <button
-            key={label}
-            className={index === step ? "step active" : index < step ? "step done" : "step"}
-            onClick={() => goToStep(index)}
-          >
-            <span>{index < step ? <Check size={14} /> : index + 1}</span>
-            {label}
-          </button>
-        ))}
+        {wizardSteps.map((label, index) => {
+          const isCurrentStep = index === step;
+          const isCompletedStep = index < step;
+          const hasError = isCurrentStep 
+            ? Object.keys(errors).length > 0 
+            : hasStepErrors(index);
+          const isAccessible = canAccessStep(index);
+
+          return (
+            <button
+              key={label}
+              className={isCompletedStep ? "step done" : isCurrentStep ? "step active" : hasError ? "step error" : "step"}
+              onClick={() => isAccessible && goToStep(index)}
+              disabled={!isAccessible && !isCompletedStep && !isCurrentStep}
+              title={!isAccessible && !isCompletedStep && !isCurrentStep ? "Complete previous steps first" : ""}
+            >
+              <span>{isCompletedStep ? <Check size={14} /> : index + 1}</span>
+              {label}
+              {hasError && !isCompletedStep && <span className="step-error-indicator" />}
+            </button>
+          );
+        })}
       </div>
 
       <div className="workflow-body">
@@ -146,7 +206,7 @@ export function TenantSetupWizard() {
           </div>
         )}
 
-        {step === 2 && (
+        {step === 2 && mode === "create" && (
           <div className="store-list">
             {errors["stores"] && <div className="field-error">{errors["stores"]}</div>}
             {draft.stores.map((store, index) => (
@@ -180,16 +240,42 @@ export function TenantSetupWizard() {
           </div>
         )}
 
-        {step === 3 && (
+        {step === 2 && mode === "edit" && (
+          <div className="store-list">
+            <label className="field">
+              <span>Primary Store</span>
+              <select value={primaryStoreId} onChange={(event) => setPrimaryStoreId(event.target.value)}>
+                <option value="">No primary store</option>
+                {draft.stores.map((store) => (
+                  <option key={store.id ?? store.code} value={store.id ?? ""}>{store.name} ({store.code})</option>
+                ))}
+              </select>
+            </label>
+            <div className="tenant-summary-grid">
+              {draft.stores.map((store) => (
+                <article key={store.id ?? store.code} className={store.id === primaryStoreId ? "tenant-summary selected" : "tenant-summary"}>
+                  <strong>{store.name}</strong>
+                  <span>{store.code} &middot; {store.type}</span>
+                  <span>{store.city || store.email || "Store linked to this tenant"}</span>
+                </article>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {step === 3 && mode === "create" && (
           <div className="form-grid">
             <Field label="Full Name" value={draft.administrator.fullName} error={errors["administrator.fullName"]} required onChange={(value) => setDraft({ ...draft, administrator: { ...draft.administrator, fullName: value } })} />
             <Field label="Email" type="email" value={draft.administrator.email} error={errors["administrator.email"]} required onChange={(value) => setDraft({ ...draft, administrator: { ...draft.administrator, email: value } })} />
             <Field label="Phone" value={draft.administrator.phone} onChange={(value) => setDraft({ ...draft, administrator: { ...draft.administrator, phone: value } })} />
-            <Field label="Temporary Password" type="password" value={draft.administrator.temporaryPassword} error={errors["administrator.temporaryPassword"]} required onChange={(value) => setDraft({ ...draft, administrator: { ...draft.administrator, temporaryPassword: value } })} />
+            <Toggle label="Send invite email" checked={draft.administrator.sendInviteEmail} onChange={(checked) => setDraft({ ...draft, administrator: { ...draft.administrator, sendInviteEmail: checked } })} />
+            {!draft.administrator.sendInviteEmail && (
+              <Field label="Temporary Password" type="password" value={draft.administrator.temporaryPassword} error={errors["administrator.temporaryPassword"]} required onChange={(value) => setDraft({ ...draft, administrator: { ...draft.administrator, temporaryPassword: value } })} />
+            )}
           </div>
         )}
 
-        {step === 4 && (
+        {step === 4 && mode === "create" && (
           <div className="template-grid">
             {["Fashion", "Shoes", "Electronics", "ReligiousGoods", "FoodBakery", "SnackBarRestaurant", "Market", "Custom"].map((template) => (
               <button
@@ -203,7 +289,7 @@ export function TenantSetupWizard() {
           </div>
         )}
 
-        {step === 5 && (
+        {step === wizardSteps.length - 1 && (
           <div className="review">
             {summary.map((item) => (
               <div key={item.label}>
@@ -213,26 +299,26 @@ export function TenantSetupWizard() {
             ))}
             <div>
               <span>Admin</span>
-              <strong>{draft.administrator.email || "Not set"}</strong>
+              <strong>{mode === "create" ? draft.administrator.email || "Not set" : "Unchanged"}</strong>
             </div>
           </div>
         )}
 
-        {message && <div className={message.startsWith("Tenant created") ? "notice success" : "notice error"}>{message}</div>}
+        {message && <div className={/created|updated/i.test(message) ? "notice success" : "notice error"}>{message}</div>}
 
         <div className="actions">
           <button className="secondary" onClick={() => setStep(Math.max(0, step - 1))} disabled={step === 0}>
             <ChevronLeft size={16} />
             Back
           </button>
-          {step < steps.length - 1 ? (
+          {step < wizardSteps.length - 1 ? (
             <button className="primary" onClick={goNext}>
               Next
               <ChevronRight size={16} />
             </button>
           ) : (
             <button className="primary" onClick={submitTenantSetup} disabled={isSubmitting}>
-              {isSubmitting ? "Creating..." : "Create Tenant"}
+              {isSubmitting ? (mode === "edit" ? "Updating..." : "Creating...") : (mode === "edit" ? "Update Tenant" : "Create Tenant")}
             </button>
           )}
         </div>
@@ -241,15 +327,45 @@ export function TenantSetupWizard() {
   );
 }
 
-function validateAllSteps(draft: TenantSetupDraft) {
-  return validateStepsBefore(steps.length, draft);
+function tenantToDraft(tenant: TenantDetails): TenantSetupDraft {
+  return {
+    company: {
+      name: tenant.name,
+      legalName: tenant.legalName ?? "",
+      document: tenant.document ?? "",
+      slug: tenant.slug,
+      email: tenant.contactEmail ?? "",
+      phone: tenant.phone ?? "",
+      mainSegment: tenant.mainSegment ?? "General",
+    },
+    settings: tenant.settings,
+    stores: tenant.stores.map((store) => ({
+      id: store.id,
+      name: store.name,
+      code: store.code,
+      document: store.document ?? "",
+      email: store.email ?? "",
+      phone: store.phone ?? "",
+      addressLine: store.addressLine ?? "",
+      city: store.city ?? "",
+      state: store.state ?? "",
+      zipCode: store.zipCode ?? "",
+      type: store.type,
+    })),
+    administrator: initialDraft.administrator,
+    catalog: { template: "Custom" },
+  };
 }
 
-function validateStepsBefore(targetStep: number, draft: TenantSetupDraft) {
+function validateAllSteps(draft: TenantSetupDraft, mode: "create" | "edit") {
+  return validateStepsBefore(mode === "edit" ? editSteps.length : createSteps.length, draft, mode);
+}
+
+function validateStepsBefore(targetStep: number, draft: TenantSetupDraft, mode: "create" | "edit") {
   const errors: ValidationErrors = {};
   let firstInvalidStep = 0;
   for (let index = 0; index < targetStep; index += 1) {
-    const validation = validateStep(index, draft);
+    const validation = validateStep(index, draft, mode);
     Object.assign(errors, validation.errors);
     if (!validation.isValid && Object.keys(errors).length === Object.keys(validation.errors).length) {
       firstInvalidStep = index;
@@ -258,7 +374,7 @@ function validateStepsBefore(targetStep: number, draft: TenantSetupDraft) {
   return { isValid: Object.keys(errors).length === 0, errors, firstInvalidStep };
 }
 
-function validateStep(step: number, draft: TenantSetupDraft) {
+function validateStep(step: number, draft: TenantSetupDraft, mode: "create" | "edit") {
   const errors: ValidationErrors = {};
 
   if (step === 0) {
@@ -299,17 +415,19 @@ function validateStep(step: number, draft: TenantSetupDraft) {
     });
   }
 
-  if (step === 3) {
+  if (step === 3 && mode === "create") {
     addRequired(errors, "administrator.fullName", draft.administrator.fullName, "Administrator name is required.");
     addRequired(errors, "administrator.email", draft.administrator.email, "Administrator email is required.");
     addEmail(errors, "administrator.email", draft.administrator.email);
-    addRequired(errors, "administrator.temporaryPassword", draft.administrator.temporaryPassword, "Temporary password is required.");
-    if (draft.administrator.temporaryPassword.trim() && draft.administrator.temporaryPassword.length < 10) {
-      errors["administrator.temporaryPassword"] = "Use at least 10 characters.";
+    if (!draft.administrator.sendInviteEmail) {
+      addRequired(errors, "administrator.temporaryPassword", draft.administrator.temporaryPassword, "Temporary password is required.");
+      if (draft.administrator.temporaryPassword.trim() && draft.administrator.temporaryPassword.length < 10) {
+        errors["administrator.temporaryPassword"] = "Use at least 10 characters.";
+      }
     }
   }
 
-  if (step === 4 && !["Fashion", "Shoes", "Electronics", "ReligiousGoods", "FoodBakery", "SnackBarRestaurant", "Market", "Custom"].includes(draft.catalog.template)) {
+  if (step === 4 && mode === "create" && !["Fashion", "Shoes", "Electronics", "ReligiousGoods", "FoodBakery", "SnackBarRestaurant", "Market", "Custom"].includes(draft.catalog.template)) {
     errors["catalog.template"] = "Choose a valid catalog template.";
   }
 

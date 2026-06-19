@@ -132,6 +132,31 @@ public sealed class AdminCatalogController(
         return NoContent();
     }
 
+    [Authorize(Policy = KnownPermissions.CategoriesManage)]
+    [HttpPost("categories/{categoryId:guid}/activate")]
+    public async Task<IActionResult> ActivateCategory(
+        Guid categoryId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.ActivateCategoryAsync(tenantId, categoryId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
+    }
+
+    [Authorize(Policy = KnownPermissions.CategoriesManage)]
+    [HttpDelete("categories/{categoryId:guid}/delete")]
+    public async Task<IActionResult> DeleteCategory(
+        Guid categoryId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.DeleteCategoryAsync(
+            tenantId, categoryId, currentUserService.UserId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
+    }
+
     [Authorize(Policy = KnownPermissions.ProductTypesManage)]
     [HttpGet("product-types")]
     public async Task<IActionResult> ListProductTypes(
@@ -200,6 +225,46 @@ public sealed class AdminCatalogController(
             return BadRequest(new { error = result.Error });
 
         return NoContent();
+    }
+
+    [Authorize(Policy = KnownPermissions.ProductTypesManage)]
+    [HttpPost("product-types/{productTypeId:guid}/activate")]
+    public async Task<IActionResult> ActivateProductType(
+        Guid productTypeId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.ActivateProductTypeAsync(tenantId, productTypeId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
+    }
+
+    [Authorize(Policy = KnownPermissions.ProductTypesManage)]
+    [HttpDelete("product-types/{productTypeId:guid}/delete")]
+    public async Task<IActionResult> DeleteProductType(
+        Guid productTypeId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.DeleteProductTypeAsync(
+            tenantId, productTypeId, currentUserService.UserId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
+    }
+
+    [Authorize(Policy = KnownPermissions.ProductsView)]
+    [HttpGet("product-types/{productTypeId:guid}/attributes")]
+    public async Task<IActionResult> ListProductTypeAttributes(
+        Guid productTypeId,
+        [FromQuery] Guid tenantId,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await catalogManagementService.ListProductTypeAttributesAsync(
+            tenantId, productTypeId, cancellationToken);
+        if (result.IsFailure || result.Value is null)
+            return BadRequest(new { error = result.Error });
+
+        return Ok(new { attributes = result.Value });
     }
 
     [Authorize(Policy = KnownPermissions.AttributesManage)]
@@ -276,6 +341,31 @@ public sealed class AdminCatalogController(
         Guid attributeId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
     {
         var result = await catalogManagementService.DisableAttributeAsync(tenantId, attributeId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
+    }
+
+    [Authorize(Policy = KnownPermissions.AttributesManage)]
+    [HttpPost("attributes/{attributeId:guid}/activate")]
+    public async Task<IActionResult> ActivateAttribute(
+        Guid attributeId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.ActivateAttributeAsync(tenantId, attributeId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
+    }
+
+    [Authorize(Policy = KnownPermissions.AttributesManage)]
+    [HttpDelete("attributes/{attributeId:guid}/delete")]
+    public async Task<IActionResult> DeleteAttribute(
+        Guid attributeId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.DeleteAttributeAsync(
+            tenantId, attributeId, currentUserService.UserId, cancellationToken);
         if (result.IsFailure)
             return BadRequest(new { error = result.Error });
 
@@ -362,6 +452,32 @@ public sealed class AdminCatalogController(
         return NoContent();
     }
 
+    [Authorize(Policy = KnownPermissions.AttributesManage)]
+    [HttpPost("attributes/{attributeId:guid}/values/{valueId:guid}/activate")]
+    public async Task<IActionResult> ActivateAttributeValue(
+        Guid attributeId, Guid valueId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.ActivateAttributeValueAsync(
+            tenantId, attributeId, valueId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
+    }
+
+    [Authorize(Policy = KnownPermissions.AttributesManage)]
+    [HttpDelete("attributes/{attributeId:guid}/values/{valueId:guid}/delete")]
+    public async Task<IActionResult> DeleteAttributeValue(
+        Guid attributeId, Guid valueId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.DeleteAttributeValueAsync(
+            tenantId, attributeId, valueId, currentUserService.UserId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
+    }
+
     [Authorize(Policy = KnownPermissions.ProductsView)]
     [HttpGet("products")]
     public async Task<IActionResult> ListProducts(
@@ -431,6 +547,31 @@ public sealed class AdminCatalogController(
         return NoContent();
     }
 
+    [Authorize(Policy = KnownPermissions.ProductsEdit)]
+    [HttpPost("products/{productId:guid}/activate")]
+    public async Task<IActionResult> ActivateProduct(
+        Guid productId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.ActivateProductAsync(tenantId, productId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
+    }
+
+    [Authorize(Policy = KnownPermissions.ProductsDisable)]
+    [HttpDelete("products/{productId:guid}/delete")]
+    public async Task<IActionResult> DeleteProduct(
+        Guid productId, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.DeleteProductAsync(
+            tenantId, productId, currentUserService.UserId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
+    }
+
     [Authorize(Policy = KnownPermissions.ProductsView)]
     [HttpGet("products/{productId:guid}/variants")]
     public async Task<IActionResult> ListVariants(
@@ -441,6 +582,71 @@ public sealed class AdminCatalogController(
             return BadRequest(new { error = result.Error });
 
         return Ok(new { variants = result.Value });
+    }
+
+    [Authorize(Policy = KnownPermissions.ProductsEdit)]
+    [HttpPut("products/{productId:guid}/variants")]
+    public async Task<IActionResult> UpdateVariants(
+        Guid productId,
+        [FromBody] UpdateProductVariantsCommand request,
+        CancellationToken cancellationToken)
+    {
+        var command = new UpdateProductVariantsCommand
+        {
+            TenantId = request.TenantId,
+            ProductId = productId,
+            Variants = request.Variants,
+            RequestedByUserId = currentUserService.UserId
+        };
+
+        var result = await catalogManagementService.UpdateProductVariantsAsync(command, cancellationToken);
+        if (result.IsFailure || result.Value is null)
+            return BadRequest(new { error = result.Error });
+
+        return Ok(new { variants = result.Value });
+    }
+
+    [Authorize(Policy = KnownPermissions.ProductsEdit)]
+    [HttpPost("products/{productId:guid}/variants")]
+    public async Task<IActionResult> AddVariants(
+        Guid productId,
+        [FromBody] AddProductVariantsCommand request,
+        CancellationToken cancellationToken)
+    {
+        var command = new AddProductVariantsCommand
+        {
+            TenantId = request.TenantId,
+            ProductId = productId,
+            ProductName = request.ProductName,
+            BaseSku = request.BaseSku,
+            DefaultSalePrice = request.DefaultSalePrice,
+            DefaultCostPrice = request.DefaultCostPrice,
+            Status = request.Status,
+            VariantAttributes = request.VariantAttributes,
+            RequestedByUserId = currentUserService.UserId
+        };
+
+        var result = await productCatalogService.AddVariantsAsync(command, cancellationToken);
+        if (result.IsFailure || result.Value is null)
+            return BadRequest(new { error = result.Error });
+
+        return Ok(result.Value);
+    }
+
+    [Authorize(Policy = KnownPermissions.ProductsEdit)]
+    [HttpDelete("products/{productId:guid}/variants/{variantId:guid}")]
+    public async Task<IActionResult> DeleteVariant(
+        Guid productId,
+        Guid variantId,
+        [FromQuery] Guid tenantId,
+        CancellationToken cancellationToken)
+    {
+        var result = await catalogManagementService.DeleteProductVariantAsync(
+            tenantId, productId, variantId, currentUserService.UserId, cancellationToken);
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
+
+        return NoContent();
     }
 
     private static IDictionary<string, object> PagedResponse<T>(string itemsPropertyName, PagedResult<T> result) =>

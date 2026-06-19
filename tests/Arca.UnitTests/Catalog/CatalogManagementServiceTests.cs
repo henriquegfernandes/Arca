@@ -77,6 +77,12 @@ public sealed class CatalogManagementServiceTests
         public Task<bool> CategorySlugExistsAsync(Guid tenantId, string slug, Guid? exceptId = null, CancellationToken cancellationToken = default) =>
             Task.FromResult(ExistingCategorySlug);
 
+        public Task<bool> CategoryExistsAsync(Guid tenantId, Guid categoryId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(true);
+
+        public Task<bool> CategoryIsDescendantAsync(Guid tenantId, Guid categoryId, Guid possibleDescendantId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
         public Task<CategoryDto> CreateCategoryAsync(CreateCategoryData data, CancellationToken cancellationToken = default)
         {
             LastCreateCategoryData = data;
@@ -89,6 +95,10 @@ public sealed class CatalogManagementServiceTests
             Task.FromResult<CategoryDto?>(null);
 
         public Task<bool> DisableCategoryAsync(Guid tenantId, Guid categoryId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+        public Task<bool> ActivateCategoryAsync(Guid tenantId, Guid categoryId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+        public Task<bool> DeleteCategoryAsync(Guid tenantId, Guid categoryId, Guid? requestedByUserId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
 
         public Task<PagedResult<ProductTypeDto>> ListProductTypesAsync(Guid tenantId, PageRequest pageRequest, CancellationToken cancellationToken = default) =>
@@ -105,6 +115,13 @@ public sealed class CatalogManagementServiceTests
 
         public Task<bool> DisableProductTypeAsync(Guid tenantId, Guid productTypeId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
+        public Task<bool> ActivateProductTypeAsync(Guid tenantId, Guid productTypeId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+        public Task<bool> DeleteProductTypeAsync(Guid tenantId, Guid productTypeId, Guid? requestedByUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+
+        public Task<IReadOnlyCollection<AttributeDto>> ListProductTypeAttributesAsync(Guid tenantId, Guid productTypeId, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyCollection<AttributeDto>>([]);
 
         public Task<PagedResult<AttributeDto>> ListAttributesAsync(Guid tenantId, PageRequest pageRequest, CancellationToken cancellationToken = default) =>
             Task.FromResult(new PagedResult<AttributeDto>([], 0, pageRequest.NormalizedPage, pageRequest.NormalizedPageSize));
@@ -119,6 +136,10 @@ public sealed class CatalogManagementServiceTests
             Task.FromResult<AttributeDto?>(null);
 
         public Task<bool> DisableAttributeAsync(Guid tenantId, Guid attributeId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+        public Task<bool> ActivateAttributeAsync(Guid tenantId, Guid attributeId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+        public Task<bool> DeleteAttributeAsync(Guid tenantId, Guid attributeId, Guid? requestedByUserId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
 
         public Task<PagedResult<AttributeValueDto>> ListAttributeValuesAsync(Guid tenantId, Guid attributeId, PageRequest pageRequest, CancellationToken cancellationToken = default) =>
@@ -135,6 +156,10 @@ public sealed class CatalogManagementServiceTests
 
         public Task<bool> DisableAttributeValueAsync(Guid tenantId, Guid attributeId, Guid valueId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
+        public Task<bool> ActivateAttributeValueAsync(Guid tenantId, Guid attributeId, Guid valueId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+        public Task<bool> DeleteAttributeValueAsync(Guid tenantId, Guid attributeId, Guid valueId, Guid? requestedByUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
 
         public Task<PagedResult<ProductSummaryDto>> ListProductsAsync(Guid tenantId, PageRequest pageRequest, CancellationToken cancellationToken = default) =>
             Task.FromResult(new PagedResult<ProductSummaryDto>([], 0, pageRequest.NormalizedPage, pageRequest.NormalizedPageSize));
@@ -145,10 +170,20 @@ public sealed class CatalogManagementServiceTests
         public Task<ProductSummaryDto?> UpdateProductAsync(UpdateProductData data, CancellationToken cancellationToken = default) =>
             Task.FromResult<ProductSummaryDto?>(null);
 
+        public Task<IReadOnlyCollection<ProductVariantDto>> UpdateProductVariantsAsync(UpdateProductVariantsData data, CancellationToken cancellationToken = default) =>
+            Task.FromResult<IReadOnlyCollection<ProductVariantDto>>([]);
+
         public Task<bool> DisableProductAsync(Guid tenantId, Guid productId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+        public Task<bool> ActivateProductAsync(Guid tenantId, Guid productId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
+        public Task<bool> DeleteProductAsync(Guid tenantId, Guid productId, Guid? requestedByUserId, CancellationToken cancellationToken = default) =>
             Task.FromResult(false);
 
         public Task<IReadOnlyCollection<ProductVariantDto>> ListVariantsAsync(Guid tenantId, Guid productId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyCollection<ProductVariantDto>>([]);
+
+        public Task<bool> DeleteProductVariantAsync(Guid tenantId, Guid productId, Guid variantId, Guid? requestedByUserId, CancellationToken cancellationToken = default) =>
+            Task.FromResult(false);
     }
 }

@@ -4,6 +4,7 @@ export function Field({
   onChange,
   error,
   required,
+  placeholder,
   type = "text",
 }: {
   label: string;
@@ -11,6 +12,7 @@ export function Field({
   onChange: (value: string) => void;
   error?: string;
   required?: boolean;
+  placeholder?: string;
   type?: "text" | "email" | "password";
 }) {
   return (
@@ -22,6 +24,7 @@ export function Field({
       <input
         type={type}
         value={value}
+        placeholder={placeholder}
         required={required}
         aria-invalid={error ? "true" : "false"}
         onChange={(event) => onChange(event.target.value)}

@@ -73,6 +73,49 @@ public sealed class ApiClientService(
         return disabled ? Result.Success() : Result.Failure("API client was not found.");
     }
 
+    public async Task<Result> DeleteAsync(
+        DeleteApiClientCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.TenantId == Guid.Empty || command.ApiClientId == Guid.Empty)
+        {
+            return Result.Failure("TenantId and apiClientId are required.");
+        }
+
+        var deleted = await repository.DeleteAsync(command, cancellationToken);
+        return deleted ? Result.Success() : Result.Failure("API client was not found.");
+    }
+
+    public async Task<Result<ApiClientDto>> UpdateAsync(
+        UpdateApiClientCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        var validationError = await ValidateUpdateAsync(command, cancellationToken);
+        if (validationError is not null)
+        {
+            return Result<ApiClientDto>.Failure(validationError);
+        }
+
+        var updated = await repository.UpdateAsync(
+            new UpdateApiClientCommand
+            {
+                ApiClientId = command.ApiClientId,
+                TenantId = command.TenantId,
+                StoreId = command.StoreId,
+                Name = command.Name.Trim(),
+                IsActive = command.IsActive,
+                Permissions = NormalizePermissions(command.Permissions),
+                RequestedByUserId = command.RequestedByUserId,
+                IpAddress = command.IpAddress,
+                UserAgent = command.UserAgent
+            },
+            cancellationToken);
+
+        return updated is null
+            ? Result<ApiClientDto>.Failure("API client was not found.")
+            : Result<ApiClientDto>.Success(updated);
+    }
+
     private async Task<string?> ValidateCreateAsync(
         CreateApiClientCommand command,
         CancellationToken cancellationToken)
@@ -92,12 +135,10 @@ public sealed class ApiClientService(
             return "At least one permission is required.";
         }
 
-        var invalidPermission = command.Permissions
-            .FirstOrDefault(permission => !ExternalApiPermissions.All.Contains(permission.Trim()));
-
-        if (invalidPermission is not null)
+        var permissionsError = ValidatePermissions(command.Permissions);
+        if (permissionsError is not null)
         {
-            return $"Invalid API permission: {invalidPermission}.";
+            return permissionsError;
         }
 
         if (!await repository.TenantExistsAsync(command.TenantId, cancellationToken))
@@ -113,4 +154,63 @@ public sealed class ApiClientService(
 
         return null;
     }
+
+    private async Task<string?> ValidateUpdateAsync(
+        UpdateApiClientCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (command.ApiClientId == Guid.Empty)
+        {
+            return "ApiClientId is required.";
+        }
+
+        if (command.TenantId == Guid.Empty)
+        {
+            return "TenantId is required.";
+        }
+
+        if (string.IsNullOrWhiteSpace(command.Name))
+        {
+            return "Name is required.";
+        }
+
+        var permissionsError = ValidatePermissions(command.Permissions);
+        if (permissionsError is not null)
+        {
+            return permissionsError;
+        }
+
+        if (!await repository.TenantExistsAsync(command.TenantId, cancellationToken))
+        {
+            return "Tenant was not found.";
+        }
+
+        if (command.StoreId is not null
+            && !await repository.StoreBelongsToTenantAsync(command.TenantId, command.StoreId.Value, cancellationToken))
+        {
+            return "Store was not found for this tenant.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidatePermissions(IReadOnlyCollection<string> permissions)
+    {
+        if (permissions.Count == 0)
+        {
+            return "At least one permission is required.";
+        }
+
+        var invalidPermission = permissions
+            .FirstOrDefault(permission => !ExternalApiPermissions.All.Contains(permission.Trim()));
+
+        return invalidPermission is null ? null : $"Invalid API permission: {invalidPermission}.";
+    }
+
+    private static List<string> NormalizePermissions(IEnumerable<string> permissions) =>
+        permissions
+            .Select(permission => permission.Trim().ToLowerInvariant())
+            .Where(permission => permission.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 }

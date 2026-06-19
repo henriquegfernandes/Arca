@@ -1,9 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { CheckCircle2, Edit3, Plus, PowerOff } from "lucide-react";
+import { ConfirmDialog, DetailGrid, EntityModal, PageHeader, SearchInput } from "../components/Crud";
 import { Field } from "../components/Field";
 import { PaginationControls } from "../components/PaginationControls";
 import { api } from "../api";
+import { useAppContext } from "../context/AppContext";
+import { useI18n } from "../i18n";
 import type { Pagination, StoreSummary } from "../types";
-import { normalizeStoreCode, addRequired, addUuid, addEmail, addPattern } from "../utils/validation";
+import { normalizeStoreCode, addRequired, addEmail, addPattern } from "../utils/validation";
 
 const initialStore = {
   name: "",
@@ -19,7 +23,9 @@ const initialStore = {
 };
 
 export function Stores() {
-  const [tenantId, setTenantId] = useState("");
+  const { currentTenant } = useAppContext();
+  const { t } = useI18n();
+  const tenantId = currentTenant?.id ?? "";
   const [stores, setStores] = useState<StoreSummary[]>([]);
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const [draft, setDraft] = useState(initialStore);
@@ -29,14 +35,27 @@ export function Stores() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [storeToDisable, setStoreToDisable] = useState<StoreSummary | null>(null);
+  const [storeToActivate, setStoreToActivate] = useState<StoreSummary | null>(null);
+  const [detailStore, setDetailStore] = useState<StoreSummary | null>(null);
+
+  useEffect(() => {
+    if (!tenantId) {
+      setStores([]);
+      setPagination(null);
+      return;
+    }
+
+    void loadStores(1);
+  }, [tenantId]);
 
   async function loadStores(nextPage = page) {
-    const validationErrors: Record<string, string> = {};
-    addRequired(validationErrors, "storesPanel.tenantId", tenantId, "TenantId is required.");
-    addUuid(validationErrors, "storesPanel.tenantId", tenantId);
-    setErrors(validationErrors);
     setMessage(null);
-    if (Object.keys(validationErrors).length > 0) return;
+    if (!tenantId) {
+      setMessage(t("stores.selectTenantLoad"));
+      return;
+    }
 
     setIsLoading(true);
     try {
@@ -45,7 +64,7 @@ export function Stores() {
       setPagination(data.pagination ?? null);
       setPage(data.pagination?.page ?? nextPage);
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : "Could not load stores.");
+      setMessage(err instanceof Error ? err.message : t("stores.loadFailed"));
     } finally {
       setIsLoading(false);
     }
@@ -67,6 +86,8 @@ export function Stores() {
     });
     setMessage(null);
     setErrors({});
+    setDetailStore(null);
+    setIsModalOpen(true);
   }
 
   function newStore() {
@@ -74,10 +95,16 @@ export function Stores() {
     setDraft({ ...initialStore, code: `STORE${stores.length + 1}` });
     setMessage(null);
     setErrors({});
+    setIsModalOpen(true);
   }
 
   async function saveStore() {
-    const validationErrors = validateStoreDraft(tenantId, draft);
+    if (!tenantId) {
+      setMessage(t("stores.selectTenantSave"));
+      return;
+    }
+
+    const validationErrors = validateStoreDraft(draft);
     setErrors(validationErrors);
     setMessage(null);
     if (Object.keys(validationErrors).length > 0) return;
@@ -85,15 +112,15 @@ export function Stores() {
     try {
       if (selectedStoreId) {
         await api.tenants.stores.update(tenantId.trim(), selectedStoreId, draft);
-        setMessage("Store updated.");
+        setMessage(t("stores.updated"));
       } else {
         await api.tenants.stores.create(tenantId.trim(), draft);
-        setMessage("Store created.");
+        setMessage(t("stores.created"));
       }
       await loadStores(selectedStoreId ? page : 1);
-      if (!selectedStoreId) newStore();
+      setIsModalOpen(false);
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : "Could not save store.");
+      setMessage(err instanceof Error ? err.message : t("stores.saveFailed"));
     }
   }
 
@@ -101,83 +128,69 @@ export function Stores() {
     setMessage(null);
     try {
       await api.tenants.stores.disable(tenantId.trim(), storeId);
-      setMessage("Store disabled.");
+      setMessage(t("stores.disabled"));
+      setStoreToDisable(null);
       await loadStores(page);
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : "Could not disable store.");
+      setMessage(err instanceof Error ? err.message : t("stores.disableFailed"));
+    }
+  }
+
+  async function activateStore(storeId: string) {
+    setMessage(null);
+    try {
+      await api.tenants.stores.activate(tenantId.trim(), storeId);
+      setMessage(t("stores.activated"));
+      setStoreToActivate(null);
+      await loadStores(page);
+    } catch (err: unknown) {
+      setMessage(err instanceof Error ? err.message : t("stores.activateFailed"));
     }
   }
 
   return (
     <section className="stores-panel">
       <div className="panel-section">
-        <div className="section-heading">
-          <div>
-            <h2>Stores</h2>
-            <p>Tenant stores.</p>
-          </div>
-          <button className="secondary" onClick={() => loadStores(1)} disabled={isLoading}>
-            {isLoading ? "Loading..." : "Load Stores"}
-          </button>
-        </div>
-        <div className="form-grid compact">
-          <Field label="TenantId" value={tenantId} error={errors["storesPanel.tenantId"]} required onChange={setTenantId} />
-          <Field label="Search" value={search} onChange={setSearch} />
-        </div>
-        {message && <div className="notice error">{message}</div>}
-      </div>
-
-      <div className="panel-section">
-        <div className="section-heading">
-          <div>
-            <h2>{selectedStoreId ? "Edit Store" : "New Store"}</h2>
-          </div>
-          <button className="secondary" onClick={newStore}>New</button>
-        </div>
-        <div className="form-grid">
-          <Field label="Store Name" value={draft.name} error={errors["store.name"]} required onChange={(v) => setDraft({ ...draft, name: v })} />
-          <Field label="Code" value={draft.code} error={errors["store.code"]} required onChange={(v) => setDraft({ ...draft, code: normalizeStoreCode(v) })} />
-          <Field label="Type" value={draft.type} error={errors["store.type"]} required onChange={(v) => setDraft({ ...draft, type: v })} />
-          <Field label="Email" type="email" value={draft.email} error={errors["store.email"]} onChange={(v) => setDraft({ ...draft, email: v })} />
-          <Field label="Phone" value={draft.phone} onChange={(v) => setDraft({ ...draft, phone: v })} />
-          <Field label="Document" value={draft.document} onChange={(v) => setDraft({ ...draft, document: v })} />
-          <Field label="Address" value={draft.addressLine} onChange={(v) => setDraft({ ...draft, addressLine: v })} />
-          <Field label="City" value={draft.city} onChange={(v) => setDraft({ ...draft, city: v })} />
-          <Field label="State" value={draft.state} onChange={(v) => setDraft({ ...draft, state: v })} />
-          <Field label="Zip Code" value={draft.zipCode} onChange={(v) => setDraft({ ...draft, zipCode: v })} />
-        </div>
-        <div className="actions left">
-          <button className="primary" onClick={saveStore}>{selectedStoreId ? "Update Store" : "Create Store"}</button>
-        </div>
+        <PageHeader
+          title={t("stores.title")}
+          description={t("stores.description")}
+          actions={<button className="primary" onClick={newStore}><Plus size={16} />{t("common.addNew")}</button>}
+        />
+        <SearchInput value={search} onChange={setSearch} onSearch={() => loadStores(1)} isLoading={isLoading} />
+        {message && <div className={/created|updated|disabled|activated/i.test(message) ? "notice success" : "notice error"}>{message}</div>}
       </div>
 
       <div className="table-shell">
         <table>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Code</th>
-              <th>Type</th>
-              <th>Contact</th>
-              <th>Status</th>
+              <th>{t("common.name")}</th>
+              <th>{t("stores.code")}</th>
+              <th>{t("stores.type")}</th>
+              <th>{t("stores.contact")}</th>
+              <th>{t("common.status")}</th>
               <th></th>
             </tr>
           </thead>
           <tbody>
             {stores.length === 0 ? (
-              <tr><td colSpan={6}>No stores loaded.</td></tr>
+              <tr><td colSpan={6}>{t("stores.noStoresLoaded")}</td></tr>
             ) : (
               stores.map((store) => (
                 <tr key={store.id}>
-                  <td>{store.name}</td>
+                  <td><button className="row-link" onClick={() => setDetailStore(store)}>{store.name}</button></td>
                   <td>{store.code}</td>
                   <td>{store.type}</td>
-                  <td>{store.email || store.phone || "Not set"}</td>
-                  <td>{store.isActive ? "Active" : "Disabled"}</td>
+                  <td>{store.email || store.phone || t("common.notSet")}</td>
+                  <td>{store.isActive ? t("common.active") : t("common.disabled")}</td>
                   <td>
                     <div className="row-actions">
-                      <button className="secondary" onClick={() => editStore(store)}>Edit</button>
-                      {store.isActive && <button className="secondary" onClick={() => disableStore(store.id)}>Disable</button>}
+                      <button className="secondary" onClick={() => editStore(store)}><Edit3 size={16} />{t("common.edit")}</button>
+                      {store.isActive ? (
+                        <button className="secondary" onClick={() => setStoreToDisable(store)}><PowerOff size={16} />{t("common.disable")}</button>
+                      ) : (
+                        <button className="secondary" onClick={() => setStoreToActivate(store)}><CheckCircle2 size={16} />{t("common.activate")}</button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -187,14 +200,82 @@ export function Stores() {
         </table>
         <PaginationControls pagination={pagination} onPageChange={loadStores} />
       </div>
+
+      {isModalOpen && (
+        <EntityModal
+          title={selectedStoreId ? t("stores.editStore") : t("stores.newStore")}
+          onClose={() => setIsModalOpen(false)}
+          footer={(
+            <>
+              <button className="secondary" type="button" onClick={() => setIsModalOpen(false)}>{t("common.cancel")}</button>
+              <button className="primary" type="button" onClick={saveStore}>{selectedStoreId ? t("stores.updateStore") : t("stores.createStore")}</button>
+            </>
+          )}
+        >
+          <div className="form-grid">
+            <Field label={t("stores.storeName")} value={draft.name} error={errors["store.name"]} required onChange={(v) => setDraft({ ...draft, name: v })} />
+            <Field label={t("stores.code")} value={draft.code} error={errors["store.code"]} required onChange={(v) => setDraft({ ...draft, code: normalizeStoreCode(v) })} />
+            <Field label={t("stores.type")} value={draft.type} error={errors["store.type"]} required onChange={(v) => setDraft({ ...draft, type: v })} />
+            <Field label={t("stores.email")} type="email" value={draft.email} error={errors["store.email"]} onChange={(v) => setDraft({ ...draft, email: v })} />
+            <Field label={t("stores.phone")} value={draft.phone} onChange={(v) => setDraft({ ...draft, phone: v })} />
+            <Field label={t("stores.document")} value={draft.document} onChange={(v) => setDraft({ ...draft, document: v })} />
+            <Field label={t("stores.address")} value={draft.addressLine} onChange={(v) => setDraft({ ...draft, addressLine: v })} />
+            <Field label={t("stores.city")} value={draft.city} onChange={(v) => setDraft({ ...draft, city: v })} />
+            <Field label={t("stores.state")} value={draft.state} onChange={(v) => setDraft({ ...draft, state: v })} />
+            <Field label={t("stores.zipCode")} value={draft.zipCode} onChange={(v) => setDraft({ ...draft, zipCode: v })} />
+          </div>
+        </EntityModal>
+      )}
+
+      {storeToDisable && (
+        <ConfirmDialog
+          title={t("stores.disableTitle")}
+          message={t("stores.disableMessage").replace("{name}", storeToDisable.name)}
+          confirmLabel={t("common.disable")}
+          onCancel={() => setStoreToDisable(null)}
+          onConfirm={() => disableStore(storeToDisable.id)}
+        />
+      )}
+
+      {storeToActivate && (
+        <ConfirmDialog
+          title={t("stores.activateTitle")}
+          message={t("stores.activateMessage").replace("{name}", storeToActivate.name)}
+          confirmLabel={t("common.activate")}
+          onCancel={() => setStoreToActivate(null)}
+          onConfirm={() => activateStore(storeToActivate.id)}
+        />
+      )}
+
+      {detailStore && (
+        <EntityModal
+          title={t("stores.details")}
+          onClose={() => setDetailStore(null)}
+          footer={(
+            <>
+              <button className="secondary" type="button" onClick={() => setDetailStore(null)}>{t("common.close")}</button>
+              <button className="primary" type="button" onClick={() => editStore(detailStore)}>{t("common.edit")}</button>
+            </>
+          )}
+        >
+          <DetailGrid
+            items={[
+              { label: t("common.name"), value: detailStore.name },
+              { label: t("stores.code"), value: detailStore.code },
+              { label: t("stores.type"), value: detailStore.type },
+              { label: t("stores.contact"), value: detailStore.email || detailStore.phone || t("common.notSet") },
+              { label: t("stores.address"), value: [detailStore.addressLine, detailStore.city, detailStore.state, detailStore.zipCode].filter(Boolean).join(", ") || t("common.notSet") },
+              { label: t("common.status"), value: detailStore.isActive ? t("common.active") : t("common.disabled") },
+            ]}
+          />
+        </EntityModal>
+      )}
     </section>
   );
 }
 
-function validateStoreDraft(tenantId: string, draft: typeof initialStore) {
+function validateStoreDraft(draft: typeof initialStore) {
   const errors: Record<string, string> = {};
-  addRequired(errors, "storesPanel.tenantId", tenantId, "TenantId is required.");
-  addUuid(errors, "storesPanel.tenantId", tenantId);
   addRequired(errors, "store.name", draft.name, "Store name is required.");
   addRequired(errors, "store.code", draft.code, "Store code is required.");
   addPattern(errors, "store.code", draft.code, /^[A-Z0-9]+(?:-[A-Z0-9]+)*$/, "Use uppercase letters, numbers and hyphens.");

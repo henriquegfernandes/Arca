@@ -20,4 +20,8 @@ public interface IRoleManagementRepository
     Task<RoleDetailsDto?> UpdateRolePermissionsAsync(UpdateRolePermissionsData data, CancellationToken cancellationToken = default);
 
     Task<bool> DisableRoleAsync(Guid roleId, CancellationToken cancellationToken = default);
+
+    Task<bool> ActivateRoleAsync(Guid roleId, CancellationToken cancellationToken = default);
+
+    Task<bool> DeleteRoleAsync(DeleteRoleData data, CancellationToken cancellationToken = default);
 }

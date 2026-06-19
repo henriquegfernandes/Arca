@@ -44,6 +44,79 @@ public sealed class AdminTenantsController(
         return Ok(result.Value);
     }
 
+    [HttpPut("{tenantId:guid}")]
+    [Authorize(Policy = KnownPermissions.TenantsEdit)]
+    public async Task<IActionResult> Update(
+        Guid tenantId,
+        [FromBody] UpdateTenantCommand request,
+        CancellationToken cancellationToken)
+    {
+        var command = new UpdateTenantCommand
+        {
+            TenantId = tenantId,
+            Company = request.Company,
+            Settings = request.Settings,
+            PrimaryStoreId = request.PrimaryStoreId,
+            RequestedByUserId = currentUserService.UserId,
+            IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+            UserAgent = Request.Headers.UserAgent.ToString()
+        };
+
+        var result = await tenantManagementService.UpdateTenantAsync(command, cancellationToken);
+        if (result.IsFailure || result.Value is null)
+        {
+            return BadRequest(new { error = result.Error });
+        }
+
+        return Ok(result.Value);
+    }
+
+    [HttpPost("{tenantId:guid}/activate")]
+    [Authorize(Policy = KnownPermissions.TenantsDisable)]
+    public async Task<IActionResult> ActivateTenant(Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await tenantManagementService.ChangeTenantStatusAsync(
+            new ChangeTenantStatusCommand
+            {
+                TenantId = tenantId,
+                IsActive = true,
+                RequestedByUserId = currentUserService.UserId,
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = Request.Headers.UserAgent.ToString()
+            },
+            cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return BadRequest(new { error = result.Error });
+        }
+
+        return NoContent();
+    }
+
+    [HttpDelete("{tenantId:guid}")]
+    [Authorize(Policy = KnownPermissions.TenantsDisable)]
+    public async Task<IActionResult> DisableTenant(Guid tenantId, CancellationToken cancellationToken)
+    {
+        var result = await tenantManagementService.ChangeTenantStatusAsync(
+            new ChangeTenantStatusCommand
+            {
+                TenantId = tenantId,
+                IsActive = false,
+                RequestedByUserId = currentUserService.UserId,
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = Request.Headers.UserAgent.ToString()
+            },
+            cancellationToken);
+
+        if (result.IsFailure)
+        {
+            return BadRequest(new { error = result.Error });
+        }
+
+        return NoContent();
+    }
+
     [HttpGet("{tenantId:guid}/stores")]
     [Authorize(Policy = KnownPermissions.StoresView)]
     public async Task<IActionResult> ListStores(
@@ -140,6 +213,33 @@ public sealed class AdminTenantsController(
         CancellationToken cancellationToken)
     {
         var result = await tenantManagementService.DisableStoreAsync(tenantId, storeId, cancellationToken);
+        if (result.IsFailure)
+        {
+            return BadRequest(new { error = result.Error });
+        }
+
+        return NoContent();
+    }
+
+    [HttpPost("{tenantId:guid}/stores/{storeId:guid}/activate")]
+    [Authorize(Policy = KnownPermissions.StoresDisable)]
+    public async Task<IActionResult> ActivateStore(
+        Guid tenantId,
+        Guid storeId,
+        CancellationToken cancellationToken)
+    {
+        var result = await tenantManagementService.ChangeStoreStatusAsync(
+            new ChangeStoreStatusCommand
+            {
+                TenantId = tenantId,
+                StoreId = storeId,
+                IsActive = true,
+                RequestedByUserId = currentUserService.UserId,
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = Request.Headers.UserAgent.ToString()
+            },
+            cancellationToken);
+
         if (result.IsFailure)
         {
             return BadRequest(new { error = result.Error });

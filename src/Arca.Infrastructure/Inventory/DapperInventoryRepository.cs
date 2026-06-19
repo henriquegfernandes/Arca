@@ -1,4 +1,5 @@
 using Arca.Application.Abstractions.Inventory;
+using Arca.Application.Common;
 using Arca.Application.Inventory;
 using Arca.Infrastructure.Database;
 using Dapper;
@@ -89,6 +90,236 @@ public sealed class DapperInventoryRepository(IDbConnectionFactory connectionFac
                 ProductVariantId = productVariantId
             },
             cancellationToken: cancellationToken));
+    }
+
+    public async Task<PagedResult<InventoryProductSummaryDto>> ListInventoryProductsAsync(
+        Guid tenantId,
+        Guid storeId,
+        InventoryProductFilters filters,
+        PageRequest pageRequest,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        var paging = NormalizePaging(pageRequest);
+        var search = string.IsNullOrWhiteSpace(filters.Search) ? paging.Search : $"%{EscapeLike(filters.Search.Trim())}%";
+        var status = string.IsNullOrWhiteSpace(filters.Status) ? null : filters.Status.Trim();
+
+        const string groupedSql = """
+            WITH product_inventory AS (
+                SELECT
+                    p.id AS ProductId,
+                    p.name AS Name,
+                    p.base_sku AS BaseSku,
+                    c.name AS CategoryName,
+                    main_image.public_url AS MainImageUrl,
+                    COALESCE(SUM(ib.quantity), 0)::int AS TotalQuantity,
+                    COALESCE(SUM(ib.reserved_quantity), 0)::int AS TotalReservedQuantity,
+                    COALESCE(SUM(ib.quantity - ib.reserved_quantity), 0)::int AS TotalAvailableQuantity,
+                    COUNT(DISTINCT pv.id)::int AS VariantCount,
+                    BOOL_OR(COALESCE(ib.quantity, 0) > 0 AND COALESCE(ib.quantity - ib.reserved_quantity, 0) <= COALESCE(ib.minimum_stock, 0)) AS HasLowStock,
+                    COALESCE(SUM(ib.quantity - ib.reserved_quantity), 0) <= 0 AS IsOutOfStock,
+                    p.status AS Status,
+                    p.created_at AS CreatedAt
+                FROM product p
+                LEFT JOIN category c ON c.id = p.category_id AND c.tenant_id = @TenantId
+                LEFT JOIN product_variant pv ON pv.product_id = p.id
+                LEFT JOIN inventory_balance ib ON ib.product_variant_id = pv.id
+                    AND EXISTS (
+                        SELECT 1
+                        FROM stock_location sl
+                        WHERE sl.id = ib.stock_location_id
+                          AND sl.store_id = @StoreId
+                          AND (@StockLocationId IS NULL OR sl.id = @StockLocationId)
+                    )
+                LEFT JOIN LATERAL (
+                    SELECT COALESCE(pi.public_url, pi.storage_path) AS public_url
+                    FROM product_image pi
+                    WHERE pi.product_id = p.id
+                    ORDER BY pi.is_main DESC, pi.sort_order, pi.created_at
+                    LIMIT 1
+                ) main_image ON TRUE
+                WHERE p.tenant_id = @TenantId
+                  AND (@CategoryId IS NULL OR p.category_id = @CategoryId)
+                  AND (@Status IS NULL OR p.status = @Status)
+                  AND (
+                        @Search IS NULL
+                     OR p.name ILIKE @Search
+                     OR p.base_sku ILIKE @Search
+                     OR p.barcode ILIKE @Search
+                     OR EXISTS (
+                          SELECT 1 FROM product_variant sv
+                          WHERE sv.product_id = p.id
+                            AND (sv.sku ILIKE @Search OR sv.barcode ILIKE @Search)
+                     )
+                  )
+                GROUP BY p.id, p.name, p.base_sku, c.name, main_image.public_url, p.status, p.created_at
+            )
+            """;
+
+        var parameters = new
+        {
+            TenantId = tenantId,
+            StoreId = storeId,
+            Search = search,
+            filters.CategoryId,
+            Status = status,
+            filters.StockLocationId,
+            filters.LowStockOnly,
+            filters.OutOfStockOnly,
+            paging.PageSize,
+            paging.Offset
+        };
+
+        var items = await connection.QueryAsync<InventoryProductSummaryDto>(new CommandDefinition(
+            groupedSql + """
+            SELECT ProductId, Name, BaseSku, CategoryName, MainImageUrl, TotalQuantity,
+                   TotalReservedQuantity, TotalAvailableQuantity, VariantCount,
+                   HasLowStock, IsOutOfStock, Status
+            FROM product_inventory
+            WHERE (@LowStockOnly = FALSE OR HasLowStock = TRUE)
+              AND (@OutOfStockOnly = FALSE OR IsOutOfStock = TRUE)
+            ORDER BY HasLowStock DESC, IsOutOfStock DESC, CreatedAt DESC
+            LIMIT @PageSize OFFSET @Offset;
+            """,
+            parameters,
+            cancellationToken: cancellationToken));
+
+        var totalCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            groupedSql + """
+            SELECT COUNT(*)::int
+            FROM product_inventory
+            WHERE (@LowStockOnly = FALSE OR HasLowStock = TRUE)
+              AND (@OutOfStockOnly = FALSE OR IsOutOfStock = TRUE);
+            """,
+            parameters,
+            cancellationToken: cancellationToken));
+
+        return new PagedResult<InventoryProductSummaryDto>(items.ToArray(), totalCount, paging.Page, paging.PageSize);
+    }
+
+    public async Task<InventoryProductDetailsDto?> GetInventoryProductDetailsAsync(
+        Guid tenantId,
+        Guid storeId,
+        Guid productId,
+        Guid? stockLocationId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        var product = await connection.QuerySingleOrDefaultAsync<ProductInventoryRecord>(new CommandDefinition(
+            """
+            SELECT
+                p.id AS ProductId,
+                p.name AS Name,
+                p.base_sku AS BaseSku,
+                p.description AS Description,
+                main_image.public_url AS MainImageUrl,
+                c.name AS CategoryName,
+                p.status AS Status,
+                COALESCE(SUM(ib.quantity), 0)::int AS TotalQuantity,
+                COALESCE(SUM(ib.reserved_quantity), 0)::int AS TotalReservedQuantity,
+                COALESCE(SUM(ib.quantity - ib.reserved_quantity), 0)::int AS TotalAvailableQuantity
+            FROM product p
+            LEFT JOIN category c ON c.id = p.category_id AND c.tenant_id = @TenantId
+            LEFT JOIN product_variant pv ON pv.product_id = p.id
+            LEFT JOIN inventory_balance ib ON ib.product_variant_id = pv.id
+                AND EXISTS (
+                    SELECT 1
+                    FROM stock_location sl
+                    WHERE sl.id = ib.stock_location_id
+                      AND sl.store_id = @StoreId
+                      AND (@StockLocationId IS NULL OR sl.id = @StockLocationId)
+                )
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(pi.public_url, pi.storage_path) AS public_url
+                FROM product_image pi
+                WHERE pi.product_id = p.id
+                ORDER BY pi.is_main DESC, pi.sort_order, pi.created_at
+                LIMIT 1
+            ) main_image ON TRUE
+            WHERE p.tenant_id = @TenantId
+              AND p.id = @ProductId
+            GROUP BY p.id, p.name, p.base_sku, p.description, main_image.public_url, c.name, p.status;
+            """,
+            new { TenantId = tenantId, StoreId = storeId, ProductId = productId, StockLocationId = stockLocationId },
+            cancellationToken: cancellationToken));
+
+        if (product is null) return null;
+
+        var variantRows = (await connection.QueryAsync<InventoryVariantRow>(new CommandDefinition(
+            """
+            SELECT
+                pv.id AS ProductVariantId,
+                pv.sku AS Sku,
+                pv.name AS Name,
+                pv.barcode AS Barcode,
+                COALESCE(SUM(ib.quantity), 0)::int AS Quantity,
+                COALESCE(SUM(ib.reserved_quantity), 0)::int AS ReservedQuantity,
+                COALESCE(SUM(ib.quantity - ib.reserved_quantity), 0)::int AS AvailableQuantity,
+                COALESCE(MAX(ib.minimum_stock), 0)::int AS MinimumStock,
+                pv.status AS Status
+            FROM product_variant pv
+            INNER JOIN product p ON p.id = pv.product_id AND p.tenant_id = @TenantId
+            LEFT JOIN inventory_balance ib ON ib.product_variant_id = pv.id
+                AND EXISTS (
+                    SELECT 1
+                    FROM stock_location sl
+                    WHERE sl.id = ib.stock_location_id
+                      AND sl.store_id = @StoreId
+                      AND (@StockLocationId IS NULL OR sl.id = @StockLocationId)
+                )
+            WHERE pv.product_id = @ProductId
+            GROUP BY pv.id, pv.sku, pv.name, pv.barcode, pv.status
+            ORDER BY pv.sku;
+            """,
+            new { TenantId = tenantId, StoreId = storeId, ProductId = productId, StockLocationId = stockLocationId },
+            cancellationToken: cancellationToken))).ToArray();
+
+        var attributes = (await connection.QueryAsync<VariantAttributeRow>(new CommandDefinition(
+            """
+            SELECT
+                pvav.product_variant_id AS ProductVariantId,
+                pa.name AS AttributeName,
+                pav.name AS ValueName,
+                pav.code AS Code
+            FROM product_variant_attribute_value pvav
+            INNER JOIN product_attribute pa ON pa.id = pvav.product_attribute_id
+            INNER JOIN product_attribute_value pav ON pav.id = pvav.product_attribute_value_id
+            INNER JOIN product_variant pv ON pv.id = pvav.product_variant_id
+            WHERE pv.product_id = @ProductId;
+            """,
+            new { ProductId = productId },
+            cancellationToken: cancellationToken)))
+            .GroupBy(row => row.ProductVariantId)
+            .ToDictionary(group => group.Key, group => group.Select(row => new VariantAttributeDto(row.AttributeName, row.ValueName, row.Code)).ToArray());
+
+        var variants = variantRows
+            .Select(row => new InventoryVariantDto(
+                row.ProductVariantId,
+                row.Sku,
+                row.Name,
+                row.Barcode,
+                attributes.TryGetValue(row.ProductVariantId, out var values) ? values : [],
+                row.Quantity,
+                row.ReservedQuantity,
+                row.AvailableQuantity,
+                row.MinimumStock,
+                row.Quantity > 0 && row.AvailableQuantity <= row.MinimumStock,
+                row.AvailableQuantity <= 0,
+                row.Status))
+            .ToArray();
+
+        return new InventoryProductDetailsDto(
+            product.ProductId,
+            product.Name,
+            product.BaseSku,
+            product.Description,
+            product.MainImageUrl,
+            product.CategoryName,
+            product.Status,
+            product.TotalQuantity,
+            product.TotalReservedQuantity,
+            product.TotalAvailableQuantity,
+            variants);
     }
 
     public async Task<InventoryOperationResult> ApplyAsync(
@@ -350,6 +581,37 @@ public sealed class DapperInventoryRepository(IDbConnectionFactory connectionFac
         return movements.ToArray();
     }
 
+    public async Task<IReadOnlyCollection<InventoryBalanceExportDto>> ListAllBalancesAsync(
+        Guid tenantId,
+        Guid storeId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        var records = await connection.QueryAsync<InventoryBalanceExportDto>(new CommandDefinition(
+            """
+            SELECT
+                sl.id AS StockLocationId,
+                sl.name AS StockLocationName,
+                ib.product_variant_id AS ProductVariantId,
+                pv.sku AS VariantSku,
+                ib.quantity AS Quantity,
+                ib.reserved_quantity AS ReservedQuantity,
+                ib.quantity - ib.reserved_quantity AS AvailableQuantity,
+                ib.minimum_stock AS MinimumStock,
+                ib.updated_at AS UpdatedAt
+            FROM inventory_balance ib
+            INNER JOIN stock_location sl ON sl.id = ib.stock_location_id
+            INNER JOIN product_variant pv ON pv.id = ib.product_variant_id
+            WHERE sl.store_id = @StoreId
+              AND sl.is_active = TRUE
+            ORDER BY sl.name, pv.sku;
+            """,
+            new { TenantId = tenantId, StoreId = storeId },
+            cancellationToken: cancellationToken));
+
+        return records.ToArray();
+    }
+
     private sealed class BalanceRecord
     {
         public Guid Id { get; init; }
@@ -357,4 +619,45 @@ public sealed class DapperInventoryRepository(IDbConnectionFactory connectionFac
         public int ReservedQuantity { get; init; }
         public int MinimumStock { get; init; }
     }
+
+    private sealed record ProductInventoryRecord(
+        Guid ProductId,
+        string Name,
+        string BaseSku,
+        string? Description,
+        string? MainImageUrl,
+        string? CategoryName,
+        string Status,
+        int TotalQuantity,
+        int TotalReservedQuantity,
+        int TotalAvailableQuantity);
+
+    private sealed record InventoryVariantRow(
+        Guid ProductVariantId,
+        string Sku,
+        string Name,
+        string? Barcode,
+        int Quantity,
+        int ReservedQuantity,
+        int AvailableQuantity,
+        int MinimumStock,
+        string Status);
+
+    private sealed record VariantAttributeRow(
+        Guid ProductVariantId,
+        string AttributeName,
+        string ValueName,
+        string Code);
+
+    private static (int Page, int PageSize, int Offset, string? Search) NormalizePaging(PageRequest request)
+    {
+        var search = request.NormalizedSearch is null ? null : $"%{EscapeLike(request.NormalizedSearch)}%";
+        return (request.NormalizedPage, request.NormalizedPageSize, request.Offset, search);
+    }
+
+    private static string EscapeLike(string value) =>
+        value
+            .Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
 }

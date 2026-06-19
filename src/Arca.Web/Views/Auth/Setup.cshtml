@@ -1,0 +1,515 @@
+@model Arca.Web.Models.PublicTenantSetupViewModel
+
+@{
+    Layout = null;
+}
+
+<!doctype html>
+<html lang="pt-BR">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cadastro - Arca</title>
+    <link rel="stylesheet" href="/css/auth.css" />
+</head>
+<body>
+    <main class="auth-shell wide">
+        <div class="auth-logo-wrap">
+            <img class="auth-logo" src="/images/arca-public-logo.svg" alt="Arca Inventory Management Platform" />
+        </div>
+
+        <section class="auth-card wide">
+        <p>Cadastre sua empresa. Ao finalizar, enviaremos um link para o administrador definir a senha de acesso.</p>
+
+        <form method="post" action="/setup" id="setupForm" novalidate>
+            @Html.AntiForgeryToken()
+            @Html.ValidationSummary(excludePropertyErrors: true)
+
+            <div class="steps" aria-label="Etapas do cadastro">
+                <button class="step-tab active" type="button" data-step="0">1. Empresa</button>
+                <button class="step-tab" type="button" data-step="1">2. Configurações</button>
+                <button class="step-tab" type="button" data-step="2">3. Loja</button>
+                <button class="step-tab" type="button" data-step="3">4. Administrador</button>
+                <button class="step-tab" type="button" data-step="4">5. Catálogo</button>
+            </div>
+
+            <section class="step active" data-panel="0">
+                <div class="grid">
+                    <div>
+                        <label for="CompanyName">Nome da empresa</label>
+                        <input id="CompanyName" asp-for="CompanyName" required />
+                    </div>
+                    <div>
+                        <label for="LegalName">Razão social</label>
+                        <input id="LegalName" asp-for="LegalName" />
+                    </div>
+                    <div>
+                        <label for="Document">Documento</label>
+                        <input id="Document" asp-for="Document" />
+                    </div>
+                    <div>
+                        <label for="Slug">Slug</label>
+                        <input id="Slug" asp-for="Slug" required />
+                    </div>
+                    <div>
+                        <label for="CompanyEmail">Email</label>
+                        <input id="CompanyEmail" asp-for="CompanyEmail" type="email" />
+                    </div>
+                    <div>
+                        <label for="CompanyPhone">Telefone</label>
+                        <input id="CompanyPhone" asp-for="CompanyPhone" />
+                    </div>
+                    <div>
+                        <label for="MainSegment">Segmento</label>
+                        <select id="MainSegment" asp-for="MainSegment" required>
+                            <option value="">-- Selecione --</option>
+                            <option value="General">Geral</option>
+                            <option value="Fashion">Moda</option>
+                            <option value="Electronics">Eletrônicos</option>
+                            <option value="Food">Alimentos</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+            <section class="step" data-panel="1">
+                <div class="grid">
+                    <div>
+                        <label for="Currency">Moeda</label>
+                        <input id="Currency" asp-for="Currency" value="BRL" required />
+                    </div>
+                    <div>
+                        <label for="TimeZone">Fuso horário</label>
+                        <input id="TimeZone" asp-for="TimeZone" value="America/Sao_Paulo" required />
+                    </div>
+                    <div>
+                        <label for="DefaultLanguage">Idioma padrão</label>
+                        <select id="DefaultLanguage" asp-for="DefaultLanguage" required>
+                            <option value="pt-BR">Português Brasil</option>
+                            <option value="en-US">English</option>
+                        </select>
+                    </div>
+                    <label class="check" for="AllowMultipleStores">
+                        <input id="AllowMultipleStores" asp-for="AllowMultipleStores" /> Permitir múltiplas lojas
+                    </label>
+                    <label class="check" for="AllowBatchControl">
+                        <input id="AllowBatchControl" asp-for="AllowBatchControl" /> Controle de lote
+                    </label>
+                    <label class="check" for="AllowExpirationControl">
+                        <input id="AllowExpirationControl" asp-for="AllowExpirationControl" /> Controle de validade
+                    </label>
+                    <label class="check" for="AllowStoreSpecificPricing">
+                        <input id="AllowStoreSpecificPricing" asp-for="AllowStoreSpecificPricing" /> Preço por loja
+                    </label>
+                </div>
+            </section>
+
+            <section class="step" data-panel="2">
+                <div class="grid">
+                    <div>
+                        <label for="StoreName">Nome da loja</label>
+                        <input id="StoreName" asp-for="StoreName" required />
+                    </div>
+                    <div>
+                        <label for="StoreCode">Código</label>
+                        <input id="StoreCode" asp-for="StoreCode" value="MAIN" required />
+                    </div>
+                    <div>
+                        <label for="StoreDocument">Documento</label>
+                        <input id="StoreDocument" asp-for="StoreDocument" />
+                    </div>
+                    <div>
+                        <label for="StoreEmail">Email</label>
+                        <input id="StoreEmail" asp-for="StoreEmail" type="email" />
+                    </div>
+                    <div>
+                        <label for="StorePhone">Telefone</label>
+                        <input id="StorePhone" asp-for="StorePhone" />
+                    </div>
+                    <div>
+                        <label for="AddressLine">Endereço</label>
+                        <input id="AddressLine" asp-for="AddressLine" />
+                    </div>
+                    <div>
+                        <label for="City">Cidade</label>
+                        <input id="City" asp-for="City" />
+                    </div>
+                    <div>
+                        <label for="State">Estado</label>
+                        <input id="State" asp-for="State" />
+                    </div>
+                    <div>
+                        <label for="ZipCode">CEP</label>
+                        <input id="ZipCode" asp-for="ZipCode" />
+                    </div>
+                    <div>
+                        <label for="StoreType">Tipo</label>
+                        <select id="StoreType" asp-for="StoreType" required>
+                            <option value="Physical">Física</option>
+                            <option value="Online">Online</option>
+                            <option value="Hybrid">Híbrida</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+            <section class="step" data-panel="3">
+                <div class="grid">
+                    <div>
+                        <label for="AdminFullName">Nome do administrador</label>
+                        <input id="AdminFullName" asp-for="AdminFullName" required />
+                    </div>
+                    <div>
+                        <label for="AdminEmail">Email do administrador</label>
+                        <input id="AdminEmail" asp-for="AdminEmail" type="email" required />
+                    </div>
+                    <div>
+                        <label for="AdminPhone">Telefone</label>
+                        <input id="AdminPhone" asp-for="AdminPhone" />
+                    </div>
+                </div>
+            </section>
+
+            <section class="step" data-panel="4">
+                <div class="grid">
+                    <div>
+                        <label for="CatalogTemplate">Template inicial</label>
+                        <select id="CatalogTemplate" asp-for="CatalogTemplate">
+                            <option value="Custom">Custom</option>
+                            <option value="Fashion">Fashion</option>
+                            <option value="Shoes">Shoes</option>
+                            <option value="Electronics">Electronics</option>
+                            <option value="ReligiousGoods">ReligiousGoods</option>
+                            <option value="FoodBakery">FoodBakery</option>
+                            <option value="SnackBarRestaurant">SnackBarRestaurant</option>
+                            <option value="Market">Market</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
+
+            <div class="actions">
+                <a class="link-button secondary" href="/login">Voltar ao login</a>
+                <div>
+                    <button class="secondary" type="button" id="backButton">Voltar</button>
+                    <button class="primary" type="button" id="nextButton">Próximo</button>
+                    <button class="primary" type="submit" id="submitButton" hidden>Finalizar cadastro</button>
+                </div>
+            </div>
+        </form>
+        </section>
+    </main>
+    <script>
+        // Aguarda o DOM estar completamente carregado
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initWizard);
+        } else {
+            initWizard();
+        }
+
+        function initWizard() {
+            console.log("=== SETUP WIZARD SCRIPT STARTING ===");
+            
+            // Debug: Log all inputs in the form
+            var allInputs = document.querySelectorAll("form input, form select");
+            console.log("Total inputs/selects found:", allInputs.length);
+            allInputs.forEach(function(input, idx) {
+                console.log(idx + ": " + input.tagName + " name='" + input.name + "' value='" + input.value + "'");
+            });
+
+            let step = 0;
+            const tabs = Array.from(document.querySelectorAll(".step-tab"));
+            const panels = Array.from(document.querySelectorAll(".step"));
+            const back = document.getElementById("backButton");
+            const next = document.getElementById("nextButton");
+            const submit = document.getElementById("submitButton");
+
+            console.log("Wizard initialized. Tabs:", tabs.length, "Panels:", panels.length);
+
+            function getInput(name) {
+                // Tenta múltiplas formas de encontrar o input
+                var input = document.querySelector("[name='" + name + "']");
+                if (!input) {
+                    input = document.querySelector("[id='" + name + "']");
+                }
+                if (!input) {
+                    input = document.querySelector("[name*='" + name + "']");
+                }
+                console.log("getInput('" + name + "'):", input ? "found (" + input.value + ")" : "NOT FOUND");
+                return input;
+            }
+
+            function clearErrors() {
+                document.querySelectorAll(".arca-field-error").forEach(function (el) { el.remove(); });
+                document.querySelectorAll("input, select").forEach(function (el) {
+                    el.style.borderColor = "";
+                    el.style.outline = "";
+                    el.style.background = "";
+                });
+            }
+
+            function showError(fieldName, message) {
+                var input = getInput(fieldName);
+                if (!input) {
+                    console.error("Cannot show error for field:", fieldName, "- input not found");
+                    return;
+                }
+                input.style.borderColor = "#c33d2e";
+                input.style.outline = "2px solid rgba(195, 61, 46, 0.3)";
+                input.style.background = "#fff8f6";
+                var existing = document.querySelector(".arca-field-error[data-for='" + fieldName + "']");
+                if (existing) existing.remove();
+                var err = document.createElement("div");
+                err.className = "arca-field-error";
+                err.setAttribute("data-for", fieldName);
+                err.textContent = message;
+                var label = input.closest("label");
+                if (label) {
+                    label.parentNode.insertBefore(err, label.nextSibling);
+                } else {
+                    input.parentNode.insertBefore(err, input.nextSibling);
+                }
+                console.log("Error shown for", fieldName, ":", message);
+            }
+
+            function addRequired(errors, key, value, message) {
+                if (value === null || value === undefined) {
+                    errors[key] = message;
+                    return;
+                }
+                var trimmedValue = String(value).trim();
+                if (!trimmedValue) {
+                    errors[key] = message;
+                }
+            }
+
+            function addPattern(errors, key, value, pattern, message) {
+                if (value === null || value === undefined) return;
+                var trimmedValue = String(value).trim();
+                if (trimmedValue && !pattern.test(trimmedValue)) {
+                    errors[key] = message;
+                }
+            }
+
+            function addEmail(errors, key, value) {
+                if (value === null || value === undefined) return;
+                var trimmedValue = String(value).trim();
+                if (trimmedValue && !trimmedValue.match(/^[^\s@@]+@@[^\s@@]+\.[^\s@@]+$/)) {
+                    errors[key] = "Enter a valid email.";
+                }
+            }
+
+            function computeStepErrors(stepIndex) {
+                var errors = {};
+                console.log("Computing errors for step", stepIndex);
+
+                // Step 0: Company
+                if (stepIndex === 0) {
+                    var name = getInput("CompanyName");
+                    var slug = getInput("Slug");
+                    var mainSegment = getInput("MainSegment");
+                    var email = getInput("CompanyEmail");
+
+                    if (name) addRequired(errors, "CompanyName", name.value, "Company name is required.");
+                    else console.error("CompanyName input not found");
+
+                    if (slug) {
+                        addRequired(errors, "Slug", slug.value, "Slug is required.");
+                        addPattern(errors, "Slug", slug.value, /^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, numbers and hyphens.");
+                    } else console.error("Slug input not found");
+
+                    if (mainSegment) {
+                        addRequired(errors, "MainSegment", mainSegment.value, "Main segment is required.");
+                    } else console.error("MainSegment input not found");
+
+                    if (email) addEmail(errors, "CompanyEmail", email.value);
+                    else console.error("CompanyEmail input not found");
+                }
+
+                // Step 1: Settings
+                if (stepIndex === 1) {
+                    var currency = getInput("Currency");
+                    var tz = getInput("TimeZone");
+                    var lang = getInput("DefaultLanguage");
+
+                    if (currency) {
+                        addRequired(errors, "Currency", currency.value, "Currency is required.");
+                        addPattern(errors, "Currency", currency.value, /^[A-Z]{3}$/, "Use a 3-letter currency code.");
+                    } else console.error("Currency input not found");
+
+                    if (tz) {
+                        addRequired(errors, "TimeZone", tz.value, "Time zone is required.");
+                        addPattern(errors, "TimeZone", tz.value, /^[A-Za-z_]+\/[A-Za-z_\/-]+$/, "Use a valid IANA time zone.");
+                    } else console.error("TimeZone input not found");
+
+                    if (lang) {
+                        addRequired(errors, "DefaultLanguage", lang.value, "Language is required.");
+                        addPattern(errors, "DefaultLanguage", lang.value, /^[a-z]{2}(?:-[A-Z]{2})?$/, "Use a locale such as pt-BR.");
+                    } else console.error("DefaultLanguage input not found");
+                }
+
+                // Step 2: Store
+                if (stepIndex === 2) {
+                    var storeName = getInput("StoreName");
+                    var storeCode = getInput("StoreCode");
+                    var storeType = getInput("StoreType");
+                    var storeEmail = getInput("StoreEmail");
+
+                    if (storeName) addRequired(errors, "StoreName", storeName.value, "Store name is required.");
+                    else console.error("StoreName input not found");
+
+                    if (storeCode) {
+                        addRequired(errors, "StoreCode", storeCode.value, "Store code is required.");
+                        addPattern(errors, "StoreCode", storeCode.value, /^[A-Z0-9]+(?:-[A-Z0-9]+)*$/, "Use uppercase letters, numbers and hyphens.");
+                    } else console.error("StoreCode input not found");
+
+                    if (storeType) {
+                        addRequired(errors, "StoreType", storeType.value, "Store type is required.");
+                    } else console.error("StoreType input not found");
+
+                    if (storeEmail) addEmail(errors, "StoreEmail", storeEmail.value);
+                    else console.error("StoreEmail input not found");
+                }
+
+                // Step 3: Administrator
+                if (stepIndex === 3) {
+                    var adminName = getInput("AdminFullName");
+                    var adminEmail = getInput("AdminEmail");
+
+                    if (adminName) {
+                        addRequired(errors, "AdminFullName", adminName.value, "Administrator name is required.");
+                    } else console.error("AdminFullName input not found");
+
+                    if (adminEmail) {
+                        addRequired(errors, "AdminEmail", adminEmail.value, "Administrator email is required.");
+                        addEmail(errors, "AdminEmail", adminEmail.value);
+                    } else console.error("AdminEmail input not found");
+                }
+
+                console.log("Step " + stepIndex + " errors:", errors);
+                return errors;
+            }
+
+            function displayErrors(errors) {
+                clearErrors();
+                var errorKeys = Object.keys(errors);
+                console.log("Displaying", errorKeys.length, "errors");
+                errorKeys.forEach(function (key) {
+                    console.log("Showing error for", key, ":", errors[key]);
+                    showError(key, errors[key]);
+                });
+            }
+
+            function validateStep(stepIndex) {
+                console.log("=== validateStep(" + stepIndex + ") ===");
+                var errors = computeStepErrors(stepIndex);
+                displayErrors(errors);
+                var isValid = Object.keys(errors).length === 0;
+                console.log("Step " + stepIndex + " VALID:", isValid);
+                return isValid;
+            }
+
+            function hasStepErrors(stepIndex) {
+                var errors = computeStepErrors(stepIndex);
+                var hasErrors = Object.keys(errors).length > 0;
+                console.log("hasStepErrors(" + stepIndex + "):", hasErrors);
+                return hasErrors;
+            }
+
+            function canAccessStep(stepIndex) {
+                if (stepIndex <= step) return true;
+                for (var i = 0; i < stepIndex; i++) {
+                    if (hasStepErrors(i)) return false;
+                }
+                return true;
+            }
+
+            function updateTabStates() {
+                tabs.forEach(function (tab, index) {
+                    var isAccessible = canAccessStep(index);
+                    var isCompleted = index < step;
+
+                    tab.classList.toggle("disabled", !isAccessible && !isCompleted && index !== step);
+                    tab.disabled = !isAccessible && !isCompleted && index !== step;
+                    tab.title = (!isAccessible && !isCompleted && index !== step) ? "Complete as etapas anteriores primeiro" : "";
+                });
+            }
+
+            function render() {
+                console.log("render() - step:", step);
+                tabs.forEach(function (tab, index) { tab.classList.toggle("active", index === step); });
+                panels.forEach(function (panel, index) { panel.classList.toggle("active", index === step); });
+                back.disabled = step === 0;
+                next.hidden = step === panels.length - 1;
+                submit.hidden = step !== panels.length - 1;
+                updateTabStates();
+            }
+
+            document.getElementById("setupForm").addEventListener("submit", function (e) {
+                console.log("=== FORM SUBMIT ===");
+                var allErrors = {};
+                for (var i = 0; i < panels.length; i++) {
+                    var stepErrors = computeStepErrors(i);
+                    Object.keys(stepErrors).forEach(function (k) { allErrors[k] = stepErrors[k]; });
+                }
+                console.log("Total errors on submit:", Object.keys(allErrors).length);
+                if (Object.keys(allErrors).length > 0) {
+                    console.log("Form has errors, preventing submit");
+                    e.preventDefault();
+                    displayErrors(allErrors);
+                    for (var i = 0; i < panels.length; i++) {
+                        if (Object.keys(computeStepErrors(i)).length > 0) { 
+                            console.log("Going to first invalid step:", i);
+                            step = i; 
+                            break; 
+                        }
+                    }
+                    render();
+                } else {
+                    console.log("Form is valid, allowing submit");
+                }
+            });
+
+            tabs.forEach(function (tab) {
+                tab.addEventListener("click", function () {
+                    var targetStep = Number(tab.dataset.step);
+                    console.log("Tab clicked, targetStep:", targetStep, "currentStep:", step);
+                    if (!canAccessStep(targetStep) && targetStep > step) {
+                        console.log("Cannot access step", targetStep);
+                        return;
+                    }
+                    step = targetStep;
+                    clearErrors();
+                    render();
+                });
+            });
+
+            back.addEventListener("click", function () {
+                console.log("Back clicked");
+                step = Math.max(0, step - 1);
+                clearErrors();
+                render();
+            });
+
+            next.addEventListener("click", function () {
+                console.log("=== NEXT CLICKED ===");
+                console.log("Current step:", step);
+                var isValid = validateStep(step);
+                console.log("Is valid:", isValid);
+                if (isValid) {
+                    step = Math.min(panels.length - 1, step + 1);
+                    clearErrors();
+                    render();
+                    console.log("Advanced to step:", step);
+                } else {
+                    console.log("NOT advancing - validation failed");
+                    render();
+                }
+            });
+
+            console.log("Script loaded. Initial state - step:", step);
+            render();
+        }
+    </script>
+</body>
+</html>

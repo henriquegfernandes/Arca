@@ -313,6 +313,78 @@ public sealed class DapperRoleManagementRepository(IDbConnectionFactory connecti
         return affected > 0;
     }
 
+    public async Task<bool> ActivateRoleAsync(Guid roleId, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE role
+            SET is_active = TRUE,
+                updated_at = @UpdatedAt
+            WHERE id = @RoleId
+              AND is_system_role = FALSE
+              AND is_active = FALSE;
+            """,
+            new { RoleId = roleId, UpdatedAt = DateTime.UtcNow },
+            cancellationToken: cancellationToken));
+
+        return affected > 0;
+    }
+
+    public async Task<bool> DeleteRoleAsync(DeleteRoleData data, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            var affected = await connection.ExecuteAsync(new CommandDefinition(
+                """
+                DELETE FROM user_role
+                WHERE role_id = @RoleId;
+
+                DELETE FROM role_permission
+                WHERE role_id = @RoleId;
+
+                DELETE FROM role
+                WHERE id = @RoleId
+                  AND is_system_role = FALSE
+                  AND scope <> 'System';
+                """,
+                new { data.RoleId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (affected == 0)
+            {
+                transaction.Rollback();
+                return false;
+            }
+
+            await InsertAuditLogAsync(
+                connection,
+                transaction,
+                data.RequestedByUserId,
+                data.TenantId,
+                "roles.delete",
+                data.RoleId,
+                $"Name={data.Name}",
+                data.IpAddress,
+                data.UserAgent,
+                DateTime.UtcNow,
+                cancellationToken);
+
+            transaction.Commit();
+            return true;
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
     private static async Task ReplacePermissionsAsync(
         System.Data.IDbConnection connection,
         System.Data.IDbTransaction transaction,

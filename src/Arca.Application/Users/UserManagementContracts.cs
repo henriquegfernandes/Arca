@@ -36,9 +36,53 @@ public sealed class CreateUserCommand
     public Guid? TenantId { get; init; }
     public Guid? StoreId { get; init; }
     public Guid? RequestedByUserId { get; init; }
+    public bool RequestedByIsSuperAdmin { get; init; }
     public string? IpAddress { get; init; }
     public string? UserAgent { get; init; }
 }
+
+public sealed class UpdateUserCommand
+{
+    public Guid UserId { get; init; }
+    public string FullName { get; init; } = string.Empty;
+    public string Email { get; init; } = string.Empty;
+    public string? Phone { get; init; }
+    public Guid RoleId { get; init; }
+    public Guid? TenantId { get; init; }
+    public Guid? StoreId { get; init; }
+    public Guid? RequestedByUserId { get; init; }
+    public bool RequestedByIsSuperAdmin { get; init; }
+    public string? IpAddress { get; init; }
+    public string? UserAgent { get; init; }
+}
+
+public sealed class DisableUserCommand
+{
+    public Guid UserId { get; init; }
+    public Guid? TenantId { get; init; }
+    public bool RequestedByIsSuperAdmin { get; init; }
+}
+
+public sealed class ChangeUserPasswordCommand
+{
+    public Guid UserId { get; init; }
+    public string NewPassword { get; init; } = string.Empty;
+    public string ConfirmPassword { get; init; } = string.Empty;
+    public bool RequirePasswordChangeOnNextLogin { get; init; }
+    public Guid? TenantId { get; init; }
+    public Guid? RequestedByUserId { get; init; }
+    public bool RequestedByIsSuperAdmin { get; init; }
+    public string? IpAddress { get; init; }
+    public string? UserAgent { get; init; }
+}
+
+public sealed record ChangeUserPasswordData(
+    Guid UserId,
+    string PasswordHash,
+    Guid? TenantId,
+    Guid? RequestedByUserId,
+    string? IpAddress,
+    string? UserAgent);
 
 public sealed record CreateUserData(
     string FullName,
@@ -46,6 +90,20 @@ public sealed record CreateUserData(
     string NormalizedEmail,
     string? Phone,
     string PasswordHash,
+    Guid RoleId,
+    string RoleScope,
+    Guid? TenantId,
+    Guid? StoreId,
+    Guid? RequestedByUserId,
+    string? IpAddress,
+    string? UserAgent);
+
+public sealed record UpdateUserData(
+    Guid UserId,
+    string FullName,
+    string Email,
+    string NormalizedEmail,
+    string? Phone,
     Guid RoleId,
     string RoleScope,
     Guid? TenantId,

@@ -14,6 +14,7 @@ public static class KnownPermissions
     public const string UsersView = "users.view";
     public const string UsersCreate = "users.create";
     public const string UsersEdit = "users.edit";
+    public const string UsersChangePassword = "users.change_password";
     public const string UsersDisable = "users.disable";
     public const string UsersAssignRoles = "users.assign_roles";
     public const string UsersAssignStores = "users.assign_stores";
@@ -50,6 +51,7 @@ public static class KnownPermissions
         (UsersView, "Users", "View users"),
         (UsersCreate, "Users", "Create users"),
         (UsersEdit, "Users", "Edit users"),
+        (UsersChangePassword, "Users", "Change user passwords"),
         (UsersDisable, "Users", "Disable users"),
         (UsersAssignRoles, "Users", "Assign roles to users"),
         (UsersAssignStores, "Users", "Assign stores to users"),

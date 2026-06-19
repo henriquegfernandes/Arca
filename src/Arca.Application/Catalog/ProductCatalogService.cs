@@ -96,6 +96,63 @@ public sealed class ProductCatalogService(
         return Result<CreateProductResult>.Success(result);
     }
 
+    public async Task<Result<CreateProductResult>> AddVariantsAsync(
+        AddProductVariantsCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.ProductId == Guid.Empty)
+        {
+            return Result<CreateProductResult>.Failure("ProductId is required.");
+        }
+
+        var validationError = ValidatePreview(command);
+        if (validationError is not null)
+        {
+            return Result<CreateProductResult>.Failure(validationError);
+        }
+
+        var selectedValues = await LoadSelectedValuesAsync(command.TenantId, command.VariantAttributes, cancellationToken);
+        var preliminaryVariants = variantGenerator.GenerateVariants(new ProductVariantGenerationInput(
+            command.ProductName,
+            command.BaseSku,
+            command.DefaultSalePrice,
+            command.DefaultCostPrice,
+            NormalizeStatus(command.Status),
+            selectedValues,
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase)));
+
+        var existingSkus = await repository.GetExistingSkusAsync(
+            preliminaryVariants.Select(variant => variant.Sku).ToArray(),
+            cancellationToken);
+
+        var variants = variantGenerator.GenerateVariants(new ProductVariantGenerationInput(
+            command.ProductName,
+            command.BaseSku,
+            command.DefaultSalePrice,
+            command.DefaultCostPrice,
+            NormalizeStatus(command.Status),
+            selectedValues,
+            existingSkus));
+
+        if (variants.Count == 0)
+        {
+            return Result<CreateProductResult>.Success(new CreateProductResult(command.ProductId, []));
+        }
+
+        try
+        {
+            var result = await repository.AddGeneratedVariantsAsync(
+                new AddProductVariantsData(command, command.VariantAttributes, variants),
+                cancellationToken);
+
+            return Result<CreateProductResult>.Success(result);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Result<CreateProductResult>.Failure(ex.Message);
+        }
+    }
+
     private async Task<IReadOnlyCollection<IReadOnlyCollection<VariantAttributeValueInfo>>> LoadSelectedValuesAsync(
         Guid tenantId,
         IReadOnlyCollection<SelectedVariantAttribute> selectedAttributes,

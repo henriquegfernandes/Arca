@@ -28,6 +28,56 @@ public sealed class TenantManagementService(ITenantManagementRepository reposito
             : Result<TenantDetailsDto>.Success(tenant);
     }
 
+    public async Task<Result<TenantDetailsDto>> UpdateTenantAsync(
+        UpdateTenantCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.TenantId == Guid.Empty)
+        {
+            return Result<TenantDetailsDto>.Failure("TenantId is required.");
+        }
+
+        var validationError = await ValidateTenantAsync(command, cancellationToken);
+        if (validationError is not null)
+        {
+            return Result<TenantDetailsDto>.Failure(validationError);
+        }
+
+        var normalizedCommand = new UpdateTenantCommand
+        {
+            TenantId = command.TenantId,
+            Company = new CompanySetupStep
+            {
+                Name = command.Company.Name.Trim(),
+                LegalName = TrimToNull(command.Company.LegalName),
+                Document = TrimToNull(command.Company.Document),
+                Slug = NormalizeSlug(command.Company.Slug),
+                Email = TrimToNull(command.Company.Email),
+                Phone = TrimToNull(command.Company.Phone),
+                MainSegment = TrimToNull(command.Company.MainSegment)
+            },
+            Settings = new TenantSettingsSetupStep
+            {
+                Currency = command.Settings.Currency.Trim().ToUpperInvariant(),
+                TimeZone = command.Settings.TimeZone.Trim(),
+                DefaultLanguage = command.Settings.DefaultLanguage.Trim(),
+                AllowMultipleStores = command.Settings.AllowMultipleStores,
+                AllowBatchControl = command.Settings.AllowBatchControl,
+                AllowExpirationControl = command.Settings.AllowExpirationControl,
+                AllowStoreSpecificPricing = command.Settings.AllowStoreSpecificPricing
+            },
+            PrimaryStoreId = command.PrimaryStoreId,
+            RequestedByUserId = command.RequestedByUserId,
+            IpAddress = command.IpAddress,
+            UserAgent = command.UserAgent
+        };
+
+        var tenant = await repository.UpdateTenantAsync(normalizedCommand, cancellationToken);
+        return tenant is null
+            ? Result<TenantDetailsDto>.Failure("Tenant was not found.")
+            : Result<TenantDetailsDto>.Success(tenant);
+    }
+
     public async Task<Result<PagedResult<StoreSummaryDto>>> ListStoresAsync(
         Guid tenantId,
         PageRequest pageRequest,
@@ -107,6 +157,47 @@ public sealed class TenantManagementService(ITenantManagementRepository reposito
         return disabled ? Result.Success() : Result.Failure("Store was not found.");
     }
 
+    public async Task<Result> ChangeTenantStatusAsync(
+        ChangeTenantStatusCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.TenantId == Guid.Empty)
+        {
+            return Result.Failure("TenantId is required.");
+        }
+
+        var changed = await repository.SetTenantActiveAsync(
+            command.TenantId,
+            command.IsActive,
+            command.RequestedByUserId,
+            command.IpAddress,
+            command.UserAgent,
+            cancellationToken);
+
+        return changed ? Result.Success() : Result.Failure("Tenant was not found.");
+    }
+
+    public async Task<Result> ChangeStoreStatusAsync(
+        ChangeStoreStatusCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.TenantId == Guid.Empty || command.StoreId == Guid.Empty)
+        {
+            return Result.Failure("TenantId and StoreId are required.");
+        }
+
+        var changed = await repository.SetStoreActiveAsync(
+            command.TenantId,
+            command.StoreId,
+            command.IsActive,
+            command.RequestedByUserId,
+            command.IpAddress,
+            command.UserAgent,
+            cancellationToken);
+
+        return changed ? Result.Success() : Result.Failure("Store was not found.");
+    }
+
     private async Task<string?> ValidateStoreAsync(
         Guid tenantId,
         Guid? storeId,
@@ -154,6 +245,50 @@ public sealed class TenantManagementService(ITenantManagementRepository reposito
         return null;
     }
 
+    private async Task<string?> ValidateTenantAsync(
+        UpdateTenantCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(command.Company.Name))
+        {
+            return "Company name is required.";
+        }
+
+        if (string.IsNullOrWhiteSpace(command.Company.Slug))
+        {
+            return "Company slug is required.";
+        }
+
+        var slug = NormalizeSlug(command.Company.Slug);
+        if (await repository.TenantSlugExistsAsync(slug, command.TenantId, cancellationToken))
+        {
+            return "Tenant slug is already in use.";
+        }
+
+        if (string.IsNullOrWhiteSpace(command.Settings.Currency))
+        {
+            return "Currency is required.";
+        }
+
+        if (string.IsNullOrWhiteSpace(command.Settings.TimeZone))
+        {
+            return "Time zone is required.";
+        }
+
+        if (string.IsNullOrWhiteSpace(command.Settings.DefaultLanguage))
+        {
+            return "Default language is required.";
+        }
+
+        if (command.PrimaryStoreId.HasValue
+            && !await repository.StoreBelongsToTenantAsync(command.TenantId, command.PrimaryStoreId.Value, cancellationToken))
+        {
+            return "Primary store must belong to this tenant.";
+        }
+
+        return null;
+    }
+
     private static CreateStoreCommand NormalizeCreateStoreCommand(CreateStoreCommand command) => new()
     {
         TenantId = command.TenantId,
@@ -193,4 +328,7 @@ public sealed class TenantManagementService(ITenantManagementRepository reposito
 
     private static string? TrimToNull(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string NormalizeSlug(string value) =>
+        value.Trim().ToLowerInvariant();
 }

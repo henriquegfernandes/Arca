@@ -111,6 +111,63 @@ public sealed class RoleManagementService(IRoleManagementRepository repository)
         return disabled ? Result.Success() : Result.Failure("Role was not found.");
     }
 
+    public async Task<Result> DeleteRoleAsync(
+        UpdateRolePermissionsCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.RoleId == Guid.Empty)
+        {
+            return Result.Failure("RoleId is required.");
+        }
+
+        var role = await repository.GetRoleAsync(command.RoleId, cancellationToken);
+        if (role is null)
+        {
+            return Result.Failure("Role was not found.");
+        }
+
+        if (role.IsSystemRole || role.Scope.Equals("System", StringComparison.OrdinalIgnoreCase))
+        {
+            return Result.Failure("System roles cannot be deleted.");
+        }
+
+        var deleted = await repository.DeleteRoleAsync(
+            new DeleteRoleData(
+                role.Id,
+                role.TenantId,
+                role.Name,
+                command.RequestedByUserId,
+                command.IpAddress,
+                command.UserAgent),
+            cancellationToken);
+
+        return deleted ? Result.Success() : Result.Failure("Role was not found.");
+    }
+
+    public async Task<Result> ActivateRoleAsync(
+        Guid roleId,
+        CancellationToken cancellationToken = default)
+    {
+        if (roleId == Guid.Empty)
+        {
+            return Result.Failure("RoleId is required.");
+        }
+
+        var role = await repository.GetRoleAsync(roleId, cancellationToken);
+        if (role is null)
+        {
+            return Result.Failure("Role was not found.");
+        }
+
+        if (role.IsSystemRole)
+        {
+            return Result.Failure("System roles are always managed by platform seed.");
+        }
+
+        var activated = await repository.ActivateRoleAsync(roleId, cancellationToken);
+        return activated ? Result.Success() : Result.Failure("Role was not found.");
+    }
+
     private async Task<string?> ValidateCreateAsync(
         CreateRoleCommand command,
         CancellationToken cancellationToken)

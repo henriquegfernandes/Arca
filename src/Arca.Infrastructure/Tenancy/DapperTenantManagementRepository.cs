@@ -37,6 +37,7 @@ public sealed class DapperTenantManagementRepository(IDbConnectionFactory connec
                 t.setup_status AS SetupStatus,
                 ts.currency AS Currency,
                 ts.time_zone AS TimeZone,
+                t.primary_store_id AS PrimaryStoreId,
                 COUNT(s.id)::int AS StoreCount,
                 t.created_at AS CreatedAt
             FROM tenant t
@@ -51,7 +52,7 @@ public sealed class DapperTenantManagementRepository(IDbConnectionFactory connec
                OR ts.currency ILIKE @Search
             GROUP BY
                 t.id, t.name, t.slug, t.contact_email, t.main_segment,
-                t.is_active, t.setup_status, ts.currency, ts.time_zone, t.created_at
+                t.is_active, t.setup_status, ts.currency, ts.time_zone, t.primary_store_id, t.created_at
             ORDER BY t.created_at DESC
             LIMIT @PageSize OFFSET @Offset;
             """,
@@ -79,6 +80,7 @@ public sealed class DapperTenantManagementRepository(IDbConnectionFactory connec
                 t.contact_email AS ContactEmail,
                 t.phone AS Phone,
                 t.main_segment AS MainSegment,
+                t.primary_store_id AS PrimaryStoreId,
                 t.is_active AS IsActive,
                 t.setup_status AS SetupStatus,
                 ts.currency AS Currency,
@@ -132,6 +134,7 @@ public sealed class DapperTenantManagementRepository(IDbConnectionFactory connec
             row.ContactEmail,
             row.Phone,
             row.MainSegment,
+            row.PrimaryStoreId,
             row.IsActive,
             row.SetupStatus,
             new TenantSettingsDto(
@@ -145,6 +148,150 @@ public sealed class DapperTenantManagementRepository(IDbConnectionFactory connec
             stores,
             row.CreatedAt,
             row.UpdatedAt);
+    }
+
+    public async Task<bool> TenantSlugExistsAsync(
+        string slug,
+        Guid? exceptTenantId = null,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM tenant
+                WHERE slug = @Slug
+                  AND (@ExceptTenantId IS NULL OR id <> @ExceptTenantId)
+            );
+            """,
+            new { Slug = slug, ExceptTenantId = exceptTenantId },
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<bool> StoreBelongsToTenantAsync(
+        Guid tenantId,
+        Guid storeId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM store
+                WHERE id = @StoreId
+                  AND tenant_id = @TenantId
+                  AND is_active = TRUE
+            );
+            """,
+            new { TenantId = tenantId, StoreId = storeId },
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<TenantDetailsDto?> UpdateTenantAsync(
+        UpdateTenantCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            var oldValue = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
+                "SELECT CONCAT('Name=', name, '; Slug=', slug, '; PrimaryStoreId=', COALESCE(primary_store_id::text, '')) FROM tenant WHERE id = @TenantId;",
+                new { command.TenantId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            var affected = await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE tenant
+                SET name = @Name,
+                    legal_name = @LegalName,
+                    document = @Document,
+                    slug = @Slug,
+                    contact_email = @Email,
+                    phone = @Phone,
+                    main_segment = @MainSegment,
+                    primary_store_id = @PrimaryStoreId,
+                    updated_at = @UpdatedAt
+                WHERE id = @TenantId;
+                """,
+                new
+                {
+                    command.TenantId,
+                    command.Company.Name,
+                    command.Company.LegalName,
+                    command.Company.Document,
+                    command.Company.Slug,
+                    command.Company.Email,
+                    command.Company.Phone,
+                    command.Company.MainSegment,
+                    command.PrimaryStoreId,
+                    UpdatedAt = now
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (affected == 0)
+            {
+                transaction.Rollback();
+                return null;
+            }
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE tenant_settings
+                SET currency = @Currency,
+                    time_zone = @TimeZone,
+                    default_language = @DefaultLanguage,
+                    allow_multiple_stores = @AllowMultipleStores,
+                    allow_batch_control = @AllowBatchControl,
+                    allow_expiration_control = @AllowExpirationControl,
+                    allow_store_specific_pricing = @AllowStoreSpecificPricing,
+                    updated_at = @UpdatedAt
+                WHERE tenant_id = @TenantId;
+                """,
+                new
+                {
+                    command.TenantId,
+                    command.Settings.Currency,
+                    command.Settings.TimeZone,
+                    command.Settings.DefaultLanguage,
+                    command.Settings.AllowMultipleStores,
+                    command.Settings.AllowBatchControl,
+                    command.Settings.AllowExpirationControl,
+                    command.Settings.AllowStoreSpecificPricing,
+                    UpdatedAt = now
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            await InsertTenantAuditLogAsync(
+                connection,
+                transaction,
+                command.RequestedByUserId,
+                command.TenantId,
+                "tenants.edit",
+                oldValue,
+                $"Name={command.Company.Name}; Slug={command.Company.Slug}; PrimaryStoreId={command.PrimaryStoreId}",
+                command.IpAddress,
+                command.UserAgent,
+                now,
+                cancellationToken);
+
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+
+        return await GetTenantAsync(command.TenantId, cancellationToken);
     }
 
     public async Task<PagedResult<StoreSummaryDto>> ListStoresAsync(
@@ -470,6 +617,115 @@ public sealed class DapperTenantManagementRepository(IDbConnectionFactory connec
         }
     }
 
+    public async Task<bool> SetTenantActiveAsync(
+        Guid tenantId,
+        bool isActive,
+        Guid? requestedByUserId,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            var affected = await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE tenant
+                SET is_active = @IsActive,
+                    updated_at = @UpdatedAt
+                WHERE id = @TenantId
+                  AND is_active <> @IsActive;
+                """,
+                new { TenantId = tenantId, IsActive = isActive, UpdatedAt = now },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (affected > 0)
+            {
+                await InsertTenantAuditLogAsync(
+                    connection,
+                    transaction,
+                    requestedByUserId,
+                    tenantId,
+                    isActive ? "tenants.activate" : "tenants.disable",
+                    $"IsActive={!isActive}",
+                    $"IsActive={isActive}",
+                    ipAddress,
+                    userAgent,
+                    now,
+                    cancellationToken);
+            }
+
+            transaction.Commit();
+            return affected > 0;
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
+    public async Task<bool> SetStoreActiveAsync(
+        Guid tenantId,
+        Guid storeId,
+        bool isActive,
+        Guid? requestedByUserId,
+        string? ipAddress,
+        string? userAgent,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            var affected = await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE store
+                SET is_active = @IsActive,
+                    updated_at = @UpdatedAt
+                WHERE id = @StoreId
+                  AND tenant_id = @TenantId
+                  AND is_active <> @IsActive;
+                """,
+                new { TenantId = tenantId, StoreId = storeId, IsActive = isActive, UpdatedAt = now },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (affected > 0)
+            {
+                await InsertAuditLogAsync(
+                    connection,
+                    transaction,
+                    requestedByUserId,
+                    tenantId,
+                    storeId,
+                    isActive ? "stores.activate" : "stores.disable",
+                    $"IsActive={!isActive}",
+                    $"IsActive={isActive}",
+                    ipAddress,
+                    userAgent,
+                    now,
+                    cancellationToken);
+            }
+
+            transaction.Commit();
+            return affected > 0;
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
     private static Task InsertAuditLogAsync(
         System.Data.IDbConnection connection,
         System.Data.IDbTransaction transaction,
@@ -512,6 +768,46 @@ public sealed class DapperTenantManagementRepository(IDbConnectionFactory connec
             cancellationToken: cancellationToken));
     }
 
+    private static Task InsertTenantAuditLogAsync(
+        System.Data.IDbConnection connection,
+        System.Data.IDbTransaction transaction,
+        Guid? userId,
+        Guid tenantId,
+        string action,
+        string? oldValue,
+        string? newValue,
+        string? ipAddress,
+        string? userAgent,
+        DateTime createdAt,
+        CancellationToken cancellationToken)
+    {
+        return connection.ExecuteAsync(new CommandDefinition(
+            """
+            INSERT INTO audit_log (
+                id, user_id, tenant_id, store_id, action, entity_name, entity_id,
+                old_value, new_value, ip_address, user_agent, created_at
+            )
+            VALUES (
+                @Id, @UserId, @TenantId, NULL, @Action, 'Tenant', @TenantId,
+                @OldValue, @NewValue, @IpAddress, @UserAgent, @CreatedAt
+            );
+            """,
+            new
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                TenantId = tenantId,
+                Action = action,
+                OldValue = oldValue,
+                NewValue = newValue,
+                IpAddress = ipAddress,
+                UserAgent = userAgent,
+                CreatedAt = createdAt
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
     private sealed class TenantDetailsRow
     {
         public Guid Id { get; init; }
@@ -522,6 +818,7 @@ public sealed class DapperTenantManagementRepository(IDbConnectionFactory connec
         public string? ContactEmail { get; init; }
         public string? Phone { get; init; }
         public string? MainSegment { get; init; }
+        public Guid? PrimaryStoreId { get; init; }
         public bool IsActive { get; init; }
         public string SetupStatus { get; init; } = string.Empty;
         public string Currency { get; init; } = string.Empty;

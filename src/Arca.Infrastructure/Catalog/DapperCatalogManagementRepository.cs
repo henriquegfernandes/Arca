@@ -52,6 +52,58 @@ public sealed class DapperCatalogManagementRepository(IDbConnectionFactory conne
             cancellationToken: cancellationToken));
     }
 
+    public async Task<bool> CategoryExistsAsync(
+        Guid tenantId,
+        Guid categoryId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM category
+                WHERE tenant_id = @TenantId
+                  AND id = @CategoryId
+                  AND is_active = TRUE
+            );
+            """,
+            new { TenantId = tenantId, CategoryId = categoryId },
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<bool> CategoryIsDescendantAsync(
+        Guid tenantId,
+        Guid categoryId,
+        Guid possibleDescendantId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            """
+            WITH RECURSIVE descendants AS (
+                SELECT id
+                FROM category
+                WHERE tenant_id = @TenantId
+                  AND parent_category_id = @CategoryId
+
+                UNION ALL
+
+                SELECT c.id
+                FROM category c
+                INNER JOIN descendants d ON d.id = c.parent_category_id
+                WHERE c.tenant_id = @TenantId
+            )
+            SELECT EXISTS (
+                SELECT 1
+                FROM descendants
+                WHERE id = @PossibleDescendantId
+            );
+            """,
+            new { TenantId = tenantId, CategoryId = categoryId, PossibleDescendantId = possibleDescendantId },
+            cancellationToken: cancellationToken));
+    }
+
     public async Task<CategoryDto> CreateCategoryAsync(
         CreateCategoryData data, CancellationToken cancellationToken = default)
     {
@@ -144,6 +196,59 @@ public sealed class DapperCatalogManagementRepository(IDbConnectionFactory conne
             await InsertAuditLogAsync(
                 connection, transaction, null, tenantId, "categories.disable", "Category",
                 categoryId, oldValue, "IsActive=False", now, cancellationToken);
+        }
+
+        transaction.Commit();
+        return affected > 0;
+    }
+
+    public Task<bool> ActivateCategoryAsync(
+        Guid tenantId, Guid categoryId, CancellationToken cancellationToken = default) =>
+        SetBooleanActiveAsync("category", "id", "tenant_id = @TenantId AND id = @EntityId",
+            tenantId, categoryId, true, "categories.activate", "Category", cancellationToken);
+
+    public async Task<bool> DeleteCategoryAsync(
+        Guid tenantId, Guid categoryId, Guid? requestedByUserId, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var now = DateTime.UtcNow;
+        var oldValue = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT CONCAT('Name=', name, '; Slug=', slug) FROM category WHERE tenant_id = @TenantId AND id = @CategoryId;",
+            new { TenantId = tenantId, CategoryId = categoryId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (oldValue is null)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE product SET category_id = NULL, updated_at = @UpdatedAt WHERE tenant_id = @TenantId AND category_id = @CategoryId;",
+            new { TenantId = tenantId, CategoryId = categoryId, UpdatedAt = now },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE category SET parent_category_id = NULL, updated_at = @UpdatedAt WHERE tenant_id = @TenantId AND parent_category_id = @CategoryId;",
+            new { TenantId = tenantId, CategoryId = categoryId, UpdatedAt = now },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM category WHERE tenant_id = @TenantId AND id = @CategoryId;",
+            new { TenantId = tenantId, CategoryId = categoryId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (affected > 0)
+        {
+            await InsertAuditLogAsync(
+                connection, transaction, requestedByUserId, tenantId, "categories.delete",
+                "Category", categoryId, oldValue, "Deleted=True", now, cancellationToken);
         }
 
         transaction.Commit();
@@ -277,6 +382,92 @@ public sealed class DapperCatalogManagementRepository(IDbConnectionFactory conne
 
         transaction.Commit();
         return affected > 0;
+    }
+
+    public Task<bool> ActivateProductTypeAsync(
+        Guid tenantId, Guid productTypeId, CancellationToken cancellationToken = default) =>
+        SetBooleanActiveAsync("product_type", "id", "tenant_id = @TenantId AND id = @EntityId",
+            tenantId, productTypeId, true, "product_types.activate", "ProductType", cancellationToken);
+
+    public async Task<bool> DeleteProductTypeAsync(
+        Guid tenantId, Guid productTypeId, Guid? requestedByUserId, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var now = DateTime.UtcNow;
+        var oldValue = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT CONCAT('Name=', name) FROM product_type WHERE tenant_id = @TenantId AND id = @ProductTypeId;",
+            new { TenantId = tenantId, ProductTypeId = productTypeId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (oldValue is null)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE product SET product_type_id = NULL, updated_at = @UpdatedAt WHERE tenant_id = @TenantId AND product_type_id = @ProductTypeId;",
+            new { TenantId = tenantId, ProductTypeId = productTypeId, UpdatedAt = now },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM product_type_attribute WHERE product_type_id = @ProductTypeId;",
+            new { ProductTypeId = productTypeId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM product_type WHERE tenant_id = @TenantId AND id = @ProductTypeId;",
+            new { TenantId = tenantId, ProductTypeId = productTypeId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (affected > 0)
+        {
+            await InsertAuditLogAsync(
+                connection, transaction, requestedByUserId, tenantId, "product_types.delete",
+                "ProductType", productTypeId, oldValue, "Deleted=True", now, cancellationToken);
+        }
+
+        transaction.Commit();
+        return affected > 0;
+    }
+
+    public async Task<IReadOnlyCollection<AttributeDto>> ListProductTypeAttributesAsync(
+        Guid tenantId,
+        Guid productTypeId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        var attributes = await connection.QueryAsync<AttributeDto>(new CommandDefinition(
+            """
+            SELECT
+                pa.id AS Id,
+                pa.tenant_id AS TenantId,
+                pa.name AS Name,
+                pa.code AS Code,
+                pa.description AS Description,
+                pa.attribute_type AS AttributeType,
+                pta.is_variant_attribute AS IsVariantAttribute,
+                pta.is_required AS IsRequired,
+                pta.sort_order AS SortOrder,
+                pa.is_active AS IsActive,
+                pa.created_at AS CreatedAt
+            FROM product_type_attribute pta
+            INNER JOIN product_attribute pa ON pa.id = pta.product_attribute_id
+            WHERE pta.product_type_id = @ProductTypeId
+              AND pa.tenant_id = @TenantId
+              AND pa.is_active = TRUE
+            ORDER BY pta.sort_order, pa.sort_order, pa.name;
+            """,
+            new { TenantId = tenantId, ProductTypeId = productTypeId },
+            cancellationToken: cancellationToken));
+
+        return attributes.ToArray();
     }
 
     public async Task<PagedResult<AttributeDto>> ListAttributesAsync(
@@ -419,6 +610,96 @@ public sealed class DapperCatalogManagementRepository(IDbConnectionFactory conne
             await InsertAuditLogAsync(
                 connection, transaction, null, tenantId, "product_attributes.disable",
                 "ProductAttribute", attributeId, oldValue, "IsActive=False", now, cancellationToken);
+        }
+
+        transaction.Commit();
+        return affected > 0;
+    }
+
+    public Task<bool> ActivateAttributeAsync(
+        Guid tenantId, Guid attributeId, CancellationToken cancellationToken = default) =>
+        SetBooleanActiveAsync("product_attribute", "id", "tenant_id = @TenantId AND id = @EntityId",
+            tenantId, attributeId, true, "product_attributes.activate", "ProductAttribute", cancellationToken);
+
+    public async Task<bool> DeleteAttributeAsync(
+        Guid tenantId, Guid attributeId, Guid? requestedByUserId, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var now = DateTime.UtcNow;
+        var oldValue = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT CONCAT('Name=', name, '; Code=', code) FROM product_attribute WHERE tenant_id = @TenantId AND id = @AttributeId;",
+            new { TenantId = tenantId, AttributeId = attributeId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (oldValue is null)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            DELETE FROM product_variant_attribute_value pvav
+            USING product_variant pv, product p
+            WHERE pvav.product_variant_id = pv.id
+              AND pv.product_id = p.id
+              AND p.tenant_id = @TenantId
+              AND pvav.product_attribute_id = @AttributeId;
+            """,
+            new { TenantId = tenantId, AttributeId = attributeId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            DELETE FROM product_variant_option pvo
+            USING product p
+            WHERE pvo.product_id = p.id
+              AND p.tenant_id = @TenantId
+              AND pvo.product_attribute_id = @AttributeId;
+            """,
+            new { TenantId = tenantId, AttributeId = attributeId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            DELETE FROM product_attribute_assignment paa
+            USING product p
+            WHERE paa.product_id = p.id
+              AND p.tenant_id = @TenantId
+              AND paa.product_attribute_id = @AttributeId;
+            """,
+            new { TenantId = tenantId, AttributeId = attributeId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM product_type_attribute WHERE product_attribute_id = @AttributeId;",
+            new { AttributeId = attributeId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM product_attribute_value WHERE tenant_id = @TenantId AND product_attribute_id = @AttributeId;",
+            new { TenantId = tenantId, AttributeId = attributeId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM product_attribute WHERE tenant_id = @TenantId AND id = @AttributeId;",
+            new { TenantId = tenantId, AttributeId = attributeId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (affected > 0)
+        {
+            await InsertAuditLogAsync(
+                connection, transaction, requestedByUserId, tenantId, "product_attributes.delete",
+                "ProductAttribute", attributeId, oldValue, "Deleted=True", now, cancellationToken);
         }
 
         transaction.Commit();
@@ -569,6 +850,91 @@ public sealed class DapperCatalogManagementRepository(IDbConnectionFactory conne
         return affected > 0;
     }
 
+    public Task<bool> ActivateAttributeValueAsync(
+        Guid tenantId, Guid attributeId, Guid valueId, CancellationToken cancellationToken = default) =>
+        SetBooleanActiveAsync("product_attribute_value", "id",
+            "tenant_id = @TenantId AND product_attribute_id = @ParentId AND id = @EntityId",
+            tenantId, valueId, true, "product_attribute_values.activate", "ProductAttributeValue",
+            cancellationToken, attributeId);
+
+    public async Task<bool> DeleteAttributeValueAsync(
+        Guid tenantId,
+        Guid attributeId,
+        Guid valueId,
+        Guid? requestedByUserId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var now = DateTime.UtcNow;
+        var oldValue = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT CONCAT('Name=', name, '; Code=', code) FROM product_attribute_value WHERE tenant_id = @TenantId AND product_attribute_id = @AttributeId AND id = @ValueId;",
+            new { TenantId = tenantId, AttributeId = attributeId, ValueId = valueId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (oldValue is null)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            DELETE FROM product_variant_attribute_value pvav
+            USING product_variant pv, product p
+            WHERE pvav.product_variant_id = pv.id
+              AND pv.product_id = p.id
+              AND p.tenant_id = @TenantId
+              AND pvav.product_attribute_value_id = @ValueId;
+            """,
+            new { TenantId = tenantId, ValueId = valueId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            DELETE FROM product_variant_option pvo
+            USING product p
+            WHERE pvo.product_id = p.id
+              AND p.tenant_id = @TenantId
+              AND pvo.product_attribute_value_id = @ValueId;
+            """,
+            new { TenantId = tenantId, ValueId = valueId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE product_attribute_assignment paa
+            SET product_attribute_value_id = NULL
+            FROM product p
+            WHERE paa.product_id = p.id
+              AND p.tenant_id = @TenantId
+              AND paa.product_attribute_value_id = @ValueId;
+            """,
+            new { TenantId = tenantId, ValueId = valueId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM product_attribute_value WHERE tenant_id = @TenantId AND product_attribute_id = @AttributeId AND id = @ValueId;",
+            new { TenantId = tenantId, AttributeId = attributeId, ValueId = valueId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (affected > 0)
+        {
+            await InsertAuditLogAsync(
+                connection, transaction, requestedByUserId, tenantId, "product_attribute_values.delete",
+                "ProductAttributeValue", valueId, oldValue, "Deleted=True", now, cancellationToken);
+        }
+
+        transaction.Commit();
+        return affected > 0;
+    }
+
     public async Task<PagedResult<ProductSummaryDto>> ListProductsAsync(
         Guid tenantId, PageRequest pageRequest, CancellationToken cancellationToken = default)
     {
@@ -578,9 +944,17 @@ public sealed class DapperCatalogManagementRepository(IDbConnectionFactory conne
             """
             SELECT p.id, p.tenant_id AS TenantId, p.category_id AS CategoryId, p.product_type_id AS ProductTypeId,
                    p.name, p.slug, p.description, p.base_sku AS BaseSku, p.barcode, p.brand, p.status,
-                   (SELECT COUNT(*) FROM product_variant pv WHERE pv.product_id = p.id) AS VariantCount,
+                   main_image.public_url AS MainImageUrl,
+                   (SELECT COUNT(*)::int FROM product_variant pv WHERE pv.product_id = p.id) AS VariantCount,
                    p.created_at AS CreatedAt
             FROM product p
+            LEFT JOIN LATERAL (
+                SELECT COALESCE(pi.public_url, pi.storage_path) AS public_url
+                FROM product_image pi
+                WHERE pi.product_id = p.id
+                ORDER BY pi.is_main DESC, pi.sort_order, pi.created_at
+                LIMIT 1
+            ) main_image ON TRUE
             WHERE p.tenant_id = @TenantId
               AND (
                     @Search IS NULL
@@ -676,7 +1050,114 @@ public sealed class DapperCatalogManagementRepository(IDbConnectionFactory conne
 
         return new ProductSummaryDto(data.ProductId, data.TenantId, data.CategoryId, data.ProductTypeId,
             data.Name, data.Slug, data.Description, data.BaseSku, data.Barcode, data.Brand,
-            data.Status, 0, now);
+            data.Status, null, 0, now);
+    }
+
+    public async Task<IReadOnlyCollection<ProductVariantDto>> UpdateProductVariantsAsync(
+        UpdateProductVariantsData data,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var now = DateTime.UtcNow;
+
+        try
+        {
+            var variantIds = data.Variants.Select(variant => variant.Id).ToArray();
+            var requestedSkus = data.Variants.Select(variant => variant.Sku).ToArray();
+
+            var ownedVariantCount = await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+                """
+                SELECT COUNT(*)::int
+                FROM product_variant pv
+                INNER JOIN product p ON p.id = pv.product_id
+                WHERE p.tenant_id = @TenantId
+                  AND p.id = @ProductId
+                  AND pv.id = ANY(@VariantIds);
+                """,
+                new { data.TenantId, data.ProductId, VariantIds = variantIds },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (ownedVariantCount != variantIds.Length)
+            {
+                throw new InvalidOperationException("One or more variants were not found for this product.");
+            }
+
+            var duplicatedSku = await connection.QueryFirstOrDefaultAsync<string>(new CommandDefinition(
+                """
+                SELECT pv.sku
+                FROM product_variant pv
+                WHERE pv.sku = ANY(@Skus)
+                  AND pv.id <> ALL(@VariantIds)
+                LIMIT 1;
+                """,
+                new { Skus = requestedSkus, VariantIds = variantIds },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (!string.IsNullOrWhiteSpace(duplicatedSku))
+            {
+                throw new InvalidOperationException($"Variant SKU is already in use: {duplicatedSku}.");
+            }
+
+            var oldValue = await connection.QueryAsync<string>(new CommandDefinition(
+                """
+                SELECT CONCAT('Sku=', sku, '; Price=', default_sale_price, '; Status=', status)
+                FROM product_variant
+                WHERE id = ANY(@VariantIds)
+                ORDER BY sku;
+                """,
+                new { VariantIds = variantIds },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            foreach (var variant in data.Variants)
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    """
+                    UPDATE product_variant
+                    SET sku = @Sku,
+                        barcode = @Barcode,
+                        name = @Name,
+                        default_sale_price = @DefaultSalePrice,
+                        default_cost_price = @DefaultCostPrice,
+                        status = @Status,
+                        updated_at = @UpdatedAt
+                    WHERE id = @VariantId
+                      AND product_id = @ProductId;
+                    """,
+                    new
+                    {
+                        VariantId = variant.Id,
+                        data.ProductId,
+                        variant.Sku,
+                        variant.Barcode,
+                        variant.Name,
+                        variant.DefaultSalePrice,
+                        variant.DefaultCostPrice,
+                        variant.Status,
+                        UpdatedAt = now
+                    },
+                    transaction,
+                    cancellationToken: cancellationToken));
+            }
+
+            await InsertAuditLogAsync(
+                connection, transaction, data.RequestedByUserId, data.TenantId,
+                "product_variants.update", "Product", data.ProductId,
+                string.Join(" | ", oldValue),
+                $"UpdatedVariants={data.Variants.Count}", now, cancellationToken);
+
+            transaction.Commit();
+            return await ListVariantsAsync(data.TenantId, data.ProductId, cancellationToken);
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
     }
 
     public async Task<bool> DisableProductAsync(
@@ -709,11 +1190,89 @@ public sealed class DapperCatalogManagementRepository(IDbConnectionFactory conne
         return affected > 0;
     }
 
+    public async Task<bool> ActivateProductAsync(
+        Guid tenantId, Guid productId, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var now = DateTime.UtcNow;
+        var oldValue = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT CONCAT('Name=', name, '; BaseSku=', base_sku, '; Status=', status) FROM product WHERE tenant_id = @TenantId AND id = @ProductId;",
+            new { TenantId = tenantId, ProductId = productId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE product SET status = 'Active', updated_at = @UpdatedAt WHERE tenant_id = @TenantId AND id = @ProductId;",
+            new { TenantId = tenantId, ProductId = productId, UpdatedAt = now },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (affected > 0)
+        {
+            await InsertAuditLogAsync(
+                connection, transaction, null, tenantId, "products.activate",
+                "Product", productId, oldValue, "Status=Active", now, cancellationToken);
+        }
+
+        transaction.Commit();
+        return affected > 0;
+    }
+
+    public async Task<bool> DeleteProductAsync(
+        Guid tenantId, Guid productId, Guid? requestedByUserId, CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var now = DateTime.UtcNow;
+        var oldValue = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT CONCAT('Name=', name, '; BaseSku=', base_sku, '; Status=', status) FROM product WHERE tenant_id = @TenantId AND id = @ProductId;",
+            new { TenantId = tenantId, ProductId = productId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (oldValue is null)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        const string variantFilter = "SELECT pv.id FROM product_variant pv INNER JOIN product p ON p.id = pv.product_id WHERE p.tenant_id = @TenantId AND p.id = @ProductId";
+
+        await connection.ExecuteAsync(new CommandDefinition($"DELETE FROM stock_movement WHERE product_variant_id IN ({variantFilter});", new { TenantId = tenantId, ProductId = productId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition($"DELETE FROM inventory_batch WHERE product_variant_id IN ({variantFilter});", new { TenantId = tenantId, ProductId = productId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition($"DELETE FROM inventory_balance WHERE product_variant_id IN ({variantFilter});", new { TenantId = tenantId, ProductId = productId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition($"DELETE FROM store_product_variant WHERE product_variant_id IN ({variantFilter});", new { TenantId = tenantId, ProductId = productId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM product_image WHERE product_id = @ProductId;", new { ProductId = productId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition($"DELETE FROM product_variant_attribute_value WHERE product_variant_id IN ({variantFilter});", new { TenantId = tenantId, ProductId = productId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM product_variant WHERE product_id = @ProductId;", new { ProductId = productId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM product_variant_option WHERE product_id = @ProductId;", new { ProductId = productId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM product_attribute_assignment WHERE product_id = @ProductId;", new { ProductId = productId }, transaction, cancellationToken: cancellationToken));
+
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM product WHERE tenant_id = @TenantId AND id = @ProductId;",
+            new { TenantId = tenantId, ProductId = productId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (affected > 0)
+        {
+            await InsertAuditLogAsync(
+                connection, transaction, requestedByUserId, tenantId, "products.delete",
+                "Product", productId, oldValue, "Deleted=True", now, cancellationToken);
+        }
+
+        transaction.Commit();
+        return affected > 0;
+    }
+
     public async Task<IReadOnlyCollection<ProductVariantDto>> ListVariantsAsync(
         Guid tenantId, Guid productId, CancellationToken cancellationToken = default)
     {
         using var connection = connectionFactory.CreateConnection();
-        var variants = await connection.QueryAsync<ProductVariantDto>(new CommandDefinition(
+        var variants = (await connection.QueryAsync<ProductVariantRecord>(new CommandDefinition(
             """
             SELECT pv.id, pv.product_id AS ProductId, pv.sku, pv.barcode, pv.name,
                    pv.default_sale_price AS DefaultSalePrice, pv.default_cost_price AS DefaultCostPrice,
@@ -724,9 +1283,171 @@ public sealed class DapperCatalogManagementRepository(IDbConnectionFactory conne
             ORDER BY pv.sku;
             """,
             new { TenantId = tenantId, ProductId = productId },
+            cancellationToken: cancellationToken))).ToArray();
+
+        if (variants.Length == 0)
+        {
+            return [];
+        }
+
+        var variantIds = variants.Select(variant => variant.Id).ToArray();
+        var attributes = (await connection.QueryAsync<ProductVariantAttributeRecord>(new CommandDefinition(
+            """
+            SELECT
+                pvav.product_variant_id AS ProductVariantId,
+                pa.id AS ProductAttributeId,
+                pa.name AS AttributeName,
+                pav.id AS ProductAttributeValueId,
+                pav.name AS ValueName,
+                pav.code AS Code
+            FROM product_variant_attribute_value pvav
+            INNER JOIN product_attribute pa ON pa.id = pvav.product_attribute_id
+            INNER JOIN product_attribute_value pav ON pav.id = pvav.product_attribute_value_id
+            WHERE pvav.product_variant_id = ANY(@VariantIds)
+            ORDER BY pa.sort_order, pav.sort_order;
+            """,
+            new { VariantIds = variantIds },
+            cancellationToken: cancellationToken)))
+            .GroupBy(attribute => attribute.ProductVariantId)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .Select(attribute => new ProductVariantAttributeDto(
+                        attribute.ProductAttributeId,
+                        attribute.AttributeName,
+                        attribute.ProductAttributeValueId,
+                        attribute.ValueName,
+                        attribute.Code))
+                    .ToArray());
+
+        return variants
+            .Select(variant => new ProductVariantDto(
+                variant.Id,
+                variant.ProductId,
+                variant.Sku,
+                variant.Barcode,
+                variant.Name,
+                variant.DefaultSalePrice,
+                variant.DefaultCostPrice,
+                variant.Status,
+                variant.CreatedAt,
+                attributes.TryGetValue(variant.Id, out var values) ? values : []))
+            .ToArray();
+    }
+
+    public async Task<bool> DeleteProductVariantAsync(
+        Guid tenantId,
+        Guid productId,
+        Guid variantId,
+        Guid? requestedByUserId,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var now = DateTime.UtcNow;
+
+        var oldValue = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            """
+            SELECT CONCAT('Sku=', pv.sku, '; Name=', pv.name)
+            FROM product_variant pv
+            INNER JOIN product p ON p.id = pv.product_id
+            WHERE p.tenant_id = @TenantId
+              AND p.id = @ProductId
+              AND pv.id = @VariantId;
+            """,
+            new { TenantId = tenantId, ProductId = productId, VariantId = variantId },
+            transaction,
             cancellationToken: cancellationToken));
 
-        return variants.ToArray();
+        if (oldValue is null)
+        {
+            transaction.Rollback();
+            return false;
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM stock_movement WHERE product_variant_id = @VariantId;", new { VariantId = variantId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM inventory_batch WHERE product_variant_id = @VariantId;", new { VariantId = variantId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM inventory_balance WHERE product_variant_id = @VariantId;", new { VariantId = variantId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM store_product_variant WHERE product_variant_id = @VariantId;", new { VariantId = variantId }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition("UPDATE product_image SET product_variant_id = NULL, updated_at = @UpdatedAt WHERE product_variant_id = @VariantId;", new { VariantId = variantId, UpdatedAt = now }, transaction, cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition("DELETE FROM product_variant_attribute_value WHERE product_variant_id = @VariantId;", new { VariantId = variantId }, transaction, cancellationToken: cancellationToken));
+
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM product_variant WHERE id = @VariantId AND product_id = @ProductId;",
+            new { VariantId = variantId, ProductId = productId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (affected > 0)
+        {
+            await InsertAuditLogAsync(
+                connection, transaction, requestedByUserId, tenantId,
+                "product_variants.delete", "ProductVariant", variantId,
+                oldValue, "Deleted=True", now, cancellationToken);
+        }
+
+        transaction.Commit();
+        return affected > 0;
+    }
+
+    private sealed record ProductVariantRecord(
+        Guid Id,
+        Guid ProductId,
+        string Sku,
+        string? Barcode,
+        string Name,
+        decimal DefaultSalePrice,
+        decimal? DefaultCostPrice,
+        string Status,
+        DateTime CreatedAt);
+
+    private sealed record ProductVariantAttributeRecord(
+        Guid ProductVariantId,
+        Guid ProductAttributeId,
+        string AttributeName,
+        Guid ProductAttributeValueId,
+        string ValueName,
+        string Code);
+
+    private async Task<bool> SetBooleanActiveAsync(
+        string tableName,
+        string idColumn,
+        string whereClause,
+        Guid tenantId,
+        Guid entityId,
+        bool isActive,
+        string action,
+        string entityName,
+        CancellationToken cancellationToken,
+        Guid? parentId = null)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+        var now = DateTime.UtcNow;
+
+        var oldValue = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            $"SELECT CONCAT('IsActive=', is_active) FROM {tableName} WHERE {whereClause};",
+            new { TenantId = tenantId, EntityId = entityId, ParentId = parentId },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            $"UPDATE {tableName} SET is_active = @IsActive, updated_at = @UpdatedAt WHERE {whereClause};",
+            new { TenantId = tenantId, EntityId = entityId, ParentId = parentId, IsActive = isActive, UpdatedAt = now },
+            transaction,
+            cancellationToken: cancellationToken));
+
+        if (affected > 0)
+        {
+            await InsertAuditLogAsync(
+                connection, transaction, null, tenantId, action, entityName,
+                entityId, oldValue, $"IsActive={isActive}", now, cancellationToken);
+        }
+
+        transaction.Commit();
+        return affected > 0;
     }
 
     private static Task InsertAuditLogAsync(

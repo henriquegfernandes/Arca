@@ -58,3 +58,11 @@ public sealed record UpdateRolePermissionsData(
     Guid? RequestedByUserId,
     string? IpAddress,
     string? UserAgent);
+
+public sealed record DeleteRoleData(
+    Guid RoleId,
+    Guid? TenantId,
+    string Name,
+    Guid? RequestedByUserId,
+    string? IpAddress,
+    string? UserAgent);

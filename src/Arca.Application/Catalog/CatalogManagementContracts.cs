@@ -56,6 +56,7 @@ public sealed record ProductSummaryDto(
     string? Barcode,
     string? Brand,
     string Status,
+    string? MainImageUrl,
     int VariantCount,
     DateTime CreatedAt);
 
@@ -85,7 +86,15 @@ public sealed record ProductVariantDto(
     decimal DefaultSalePrice,
     decimal? DefaultCostPrice,
     string Status,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    IReadOnlyCollection<ProductVariantAttributeDto> Attributes);
+
+public sealed record ProductVariantAttributeDto(
+    Guid ProductAttributeId,
+    string AttributeName,
+    Guid ProductAttributeValueId,
+    string ValueName,
+    string Code);
 
 public sealed class CreateCategoryCommand
 {
@@ -193,6 +202,25 @@ public sealed class UpdateProductCommand
     public Guid? RequestedByUserId { get; init; }
 }
 
+public sealed class UpdateProductVariantsCommand
+{
+    public Guid TenantId { get; init; }
+    public Guid ProductId { get; init; }
+    public List<UpdateProductVariantCommand> Variants { get; init; } = [];
+    public Guid? RequestedByUserId { get; init; }
+}
+
+public sealed class UpdateProductVariantCommand
+{
+    public Guid Id { get; init; }
+    public string Sku { get; init; } = string.Empty;
+    public string? Barcode { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public decimal DefaultSalePrice { get; init; }
+    public decimal? DefaultCostPrice { get; init; }
+    public string Status { get; init; } = "Active";
+}
+
 public sealed record CreateCategoryData(
     Guid TenantId,
     Guid? ParentCategoryId,
@@ -282,3 +310,18 @@ public sealed record UpdateProductData(
     string? Brand,
     string Status,
     Guid? RequestedByUserId);
+
+public sealed record UpdateProductVariantsData(
+    Guid TenantId,
+    Guid ProductId,
+    IReadOnlyCollection<UpdateProductVariantData> Variants,
+    Guid? RequestedByUserId);
+
+public sealed record UpdateProductVariantData(
+    Guid Id,
+    string Sku,
+    string? Barcode,
+    string Name,
+    decimal DefaultSalePrice,
+    decimal? DefaultCostPrice,
+    string Status);

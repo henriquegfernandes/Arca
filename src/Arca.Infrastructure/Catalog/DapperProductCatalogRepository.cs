@@ -236,4 +236,155 @@ public sealed class DapperProductCatalogRepository(IDbConnectionFactory connecti
             throw;
         }
     }
+
+    public async Task<CreateProductResult> AddGeneratedVariantsAsync(
+        AddProductVariantsData productData,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            var now = DateTime.UtcNow;
+            var command = productData.Command;
+
+            var productExists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM product
+                    WHERE tenant_id = @TenantId
+                      AND id = @ProductId
+                );
+                """,
+                new { command.TenantId, command.ProductId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (!productExists)
+            {
+                throw new InvalidOperationException("Product was not found.");
+            }
+
+            foreach (var option in productData.VariantOptions)
+            {
+                foreach (var valueId in option.ProductAttributeValueIds.Distinct())
+                {
+                    await connection.ExecuteAsync(new CommandDefinition(
+                        """
+                        INSERT INTO product_variant_option (
+                            id, product_id, product_attribute_id, product_attribute_value_id
+                        )
+                        VALUES (@Id, @ProductId, @ProductAttributeId, @ProductAttributeValueId)
+                        ON CONFLICT (product_id, product_attribute_id, product_attribute_value_id) DO NOTHING;
+                        """,
+                        new
+                        {
+                            Id = Guid.NewGuid(),
+                            command.ProductId,
+                            option.ProductAttributeId,
+                            ProductAttributeValueId = valueId
+                        },
+                        transaction,
+                        cancellationToken: cancellationToken));
+                }
+            }
+
+            var createdVariants = new List<CreatedProductVariant>();
+            foreach (var variant in productData.Variants)
+            {
+                var insertedVariantId = await connection.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+                    """
+                    INSERT INTO product_variant (
+                        id, product_id, sku, barcode, name, default_sale_price,
+                        default_cost_price, status, created_at, updated_at
+                    )
+                    VALUES (
+                        @Id, @ProductId, @Sku, NULL, @Name, @DefaultSalePrice,
+                        @DefaultCostPrice, @Status, @CreatedAt, NULL
+                    )
+                    ON CONFLICT (sku) DO NOTHING
+                    RETURNING id;
+                    """,
+                    new
+                    {
+                        Id = Guid.NewGuid(),
+                        command.ProductId,
+                        variant.Sku,
+                        variant.Name,
+                        variant.DefaultSalePrice,
+                        variant.DefaultCostPrice,
+                        variant.Status,
+                        CreatedAt = now
+                    },
+                    transaction,
+                    cancellationToken: cancellationToken));
+
+                if (insertedVariantId is null)
+                {
+                    continue;
+                }
+
+                var variantId = insertedVariantId.Value;
+                createdVariants.Add(new CreatedProductVariant(variantId, variant.Sku, variant.Name));
+
+                foreach (var attribute in variant.Attributes)
+                {
+                    await connection.ExecuteAsync(new CommandDefinition(
+                        """
+                        INSERT INTO product_variant_attribute_value (
+                            id, product_variant_id, product_attribute_id, product_attribute_value_id
+                        )
+                        VALUES (@Id, @ProductVariantId, @ProductAttributeId, @ProductAttributeValueId)
+                        ON CONFLICT (product_variant_id, product_attribute_id) DO NOTHING;
+                        """,
+                        new
+                        {
+                            Id = Guid.NewGuid(),
+                            ProductVariantId = variantId,
+                            attribute.ProductAttributeId,
+                            attribute.ProductAttributeValueId
+                        },
+                        transaction,
+                        cancellationToken: cancellationToken));
+                }
+            }
+
+            if (createdVariants.Count > 0)
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    """
+                    INSERT INTO audit_log (
+                        id, user_id, tenant_id, store_id, action, entity_name, entity_id,
+                        old_value, new_value, ip_address, user_agent, created_at
+                    )
+                    VALUES (
+                        @Id, @UserId, @TenantId, NULL, 'product_variants.create', 'Product', @ProductId,
+                        NULL, @NewValue, NULL, NULL, @CreatedAt
+                    );
+                    """,
+                    new
+                    {
+                        Id = Guid.NewGuid(),
+                        UserId = command.RequestedByUserId,
+                        command.TenantId,
+                        command.ProductId,
+                        NewValue = $"AddedVariants={createdVariants.Count}",
+                        CreatedAt = now
+                    },
+                    transaction,
+                    cancellationToken: cancellationToken));
+            }
+
+            transaction.Commit();
+            return new CreateProductResult(command.ProductId, createdVariants);
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
 }

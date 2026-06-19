@@ -74,6 +74,26 @@ public sealed class CatalogManagementService(ICatalogManagementRepository reposi
         return disabled ? Result.Success() : Result.Failure("Category was not found.");
     }
 
+    public async Task<Result> ActivateCategoryAsync(
+        Guid tenantId, Guid categoryId, CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || categoryId == Guid.Empty)
+            return Result.Failure("TenantId and CategoryId are required.");
+
+        var activated = await repository.ActivateCategoryAsync(tenantId, categoryId, cancellationToken);
+        return activated ? Result.Success() : Result.Failure("Category was not found.");
+    }
+
+    public async Task<Result> DeleteCategoryAsync(
+        Guid tenantId, Guid categoryId, Guid? requestedByUserId, CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || categoryId == Guid.Empty)
+            return Result.Failure("TenantId and CategoryId are required.");
+
+        var deleted = await repository.DeleteCategoryAsync(tenantId, categoryId, requestedByUserId, cancellationToken);
+        return deleted ? Result.Success() : Result.Failure("Category was not found.");
+    }
+
     public async Task<Result<PagedResult<ProductTypeDto>>> ListProductTypesAsync(
         Guid tenantId, PageRequest pageRequest, CancellationToken cancellationToken = default)
     {
@@ -129,6 +149,36 @@ public sealed class CatalogManagementService(ICatalogManagementRepository reposi
 
         var disabled = await repository.DisableProductTypeAsync(tenantId, productTypeId, cancellationToken);
         return disabled ? Result.Success() : Result.Failure("Product type was not found.");
+    }
+
+    public async Task<Result> ActivateProductTypeAsync(
+        Guid tenantId, Guid productTypeId, CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || productTypeId == Guid.Empty)
+            return Result.Failure("TenantId and ProductTypeId are required.");
+
+        var activated = await repository.ActivateProductTypeAsync(tenantId, productTypeId, cancellationToken);
+        return activated ? Result.Success() : Result.Failure("Product type was not found.");
+    }
+
+    public async Task<Result> DeleteProductTypeAsync(
+        Guid tenantId, Guid productTypeId, Guid? requestedByUserId, CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || productTypeId == Guid.Empty)
+            return Result.Failure("TenantId and ProductTypeId are required.");
+
+        var deleted = await repository.DeleteProductTypeAsync(tenantId, productTypeId, requestedByUserId, cancellationToken);
+        return deleted ? Result.Success() : Result.Failure("Product type was not found.");
+    }
+
+    public async Task<Result<IReadOnlyCollection<AttributeDto>>> ListProductTypeAttributesAsync(
+        Guid tenantId, Guid productTypeId, CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || productTypeId == Guid.Empty)
+            return Result<IReadOnlyCollection<AttributeDto>>.Failure("TenantId and ProductTypeId are required.");
+
+        var attributes = await repository.ListProductTypeAttributesAsync(tenantId, productTypeId, cancellationToken);
+        return Result<IReadOnlyCollection<AttributeDto>>.Success(attributes);
     }
 
     public async Task<Result<PagedResult<AttributeDto>>> ListAttributesAsync(
@@ -198,6 +248,26 @@ public sealed class CatalogManagementService(ICatalogManagementRepository reposi
         return disabled ? Result.Success() : Result.Failure("Attribute was not found.");
     }
 
+    public async Task<Result> ActivateAttributeAsync(
+        Guid tenantId, Guid attributeId, CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || attributeId == Guid.Empty)
+            return Result.Failure("TenantId and AttributeId are required.");
+
+        var activated = await repository.ActivateAttributeAsync(tenantId, attributeId, cancellationToken);
+        return activated ? Result.Success() : Result.Failure("Attribute was not found.");
+    }
+
+    public async Task<Result> DeleteAttributeAsync(
+        Guid tenantId, Guid attributeId, Guid? requestedByUserId, CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || attributeId == Guid.Empty)
+            return Result.Failure("TenantId and AttributeId are required.");
+
+        var deleted = await repository.DeleteAttributeAsync(tenantId, attributeId, requestedByUserId, cancellationToken);
+        return deleted ? Result.Success() : Result.Failure("Attribute was not found.");
+    }
+
     public async Task<Result<PagedResult<AttributeValueDto>>> ListAttributeValuesAsync(
         Guid tenantId, Guid attributeId, PageRequest pageRequest, CancellationToken cancellationToken = default)
     {
@@ -264,6 +334,27 @@ public sealed class CatalogManagementService(ICatalogManagementRepository reposi
         return disabled ? Result.Success() : Result.Failure("Attribute value was not found.");
     }
 
+    public async Task<Result> ActivateAttributeValueAsync(
+        Guid tenantId, Guid attributeId, Guid valueId, CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || attributeId == Guid.Empty || valueId == Guid.Empty)
+            return Result.Failure("TenantId, AttributeId and ValueId are required.");
+
+        var activated = await repository.ActivateAttributeValueAsync(tenantId, attributeId, valueId, cancellationToken);
+        return activated ? Result.Success() : Result.Failure("Attribute value was not found.");
+    }
+
+    public async Task<Result> DeleteAttributeValueAsync(
+        Guid tenantId, Guid attributeId, Guid valueId, Guid? requestedByUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || attributeId == Guid.Empty || valueId == Guid.Empty)
+            return Result.Failure("TenantId, AttributeId and ValueId are required.");
+
+        var deleted = await repository.DeleteAttributeValueAsync(tenantId, attributeId, valueId, requestedByUserId, cancellationToken);
+        return deleted ? Result.Success() : Result.Failure("Attribute value was not found.");
+    }
+
     public async Task<Result<PagedResult<ProductSummaryDto>>> ListProductsAsync(
         Guid tenantId, PageRequest pageRequest, CancellationToken cancellationToken = default)
     {
@@ -313,6 +404,69 @@ public sealed class CatalogManagementService(ICatalogManagementRepository reposi
             : Result<ProductSummaryDto>.Success(product);
     }
 
+    public async Task<Result<IReadOnlyCollection<ProductVariantDto>>> UpdateProductVariantsAsync(
+        UpdateProductVariantsCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.TenantId == Guid.Empty || command.ProductId == Guid.Empty)
+            return Result<IReadOnlyCollection<ProductVariantDto>>.Failure("TenantId and ProductId are required.");
+
+        if (command.Variants.Count == 0)
+            return Result<IReadOnlyCollection<ProductVariantDto>>.Success([]);
+
+        var normalizedVariants = new List<UpdateProductVariantData>();
+        var skus = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var variant in command.Variants)
+        {
+            if (variant.Id == Guid.Empty)
+                return Result<IReadOnlyCollection<ProductVariantDto>>.Failure("VariantId is required.");
+
+            if (string.IsNullOrWhiteSpace(variant.Sku))
+                return Result<IReadOnlyCollection<ProductVariantDto>>.Failure("Variant SKU is required.");
+
+            if (string.IsNullOrWhiteSpace(variant.Name))
+                return Result<IReadOnlyCollection<ProductVariantDto>>.Failure("Variant name is required.");
+
+            if (variant.DefaultSalePrice < 0 || variant.DefaultCostPrice < 0)
+                return Result<IReadOnlyCollection<ProductVariantDto>>.Failure("Variant prices cannot be negative.");
+
+            var status = NormalizeStatus(variant.Status);
+            if (status is not ("Draft" or "Active" or "Inactive"))
+                return Result<IReadOnlyCollection<ProductVariantDto>>.Failure("Variant status must be Draft, Active or Inactive.");
+
+            var sku = variant.Sku.Trim().ToUpperInvariant();
+            if (!skus.Add(sku))
+                return Result<IReadOnlyCollection<ProductVariantDto>>.Failure($"Duplicated variant SKU in request: {sku}.");
+
+            normalizedVariants.Add(new UpdateProductVariantData(
+                variant.Id,
+                sku,
+                TrimToNull(variant.Barcode),
+                variant.Name.Trim(),
+                variant.DefaultSalePrice,
+                variant.DefaultCostPrice,
+                status));
+        }
+
+        IReadOnlyCollection<ProductVariantDto> updated;
+        try
+        {
+            updated = await repository.UpdateProductVariantsAsync(
+                new UpdateProductVariantsData(
+                    command.TenantId,
+                    command.ProductId,
+                    normalizedVariants,
+                    command.RequestedByUserId),
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Result<IReadOnlyCollection<ProductVariantDto>>.Failure(ex.Message);
+        }
+
+        return Result<IReadOnlyCollection<ProductVariantDto>>.Success(updated);
+    }
+
     public async Task<Result> DisableProductAsync(
         Guid tenantId, Guid productId, CancellationToken cancellationToken = default)
     {
@@ -321,6 +475,26 @@ public sealed class CatalogManagementService(ICatalogManagementRepository reposi
 
         var disabled = await repository.DisableProductAsync(tenantId, productId, cancellationToken);
         return disabled ? Result.Success() : Result.Failure("Product was not found.");
+    }
+
+    public async Task<Result> ActivateProductAsync(
+        Guid tenantId, Guid productId, CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || productId == Guid.Empty)
+            return Result.Failure("TenantId and ProductId are required.");
+
+        var activated = await repository.ActivateProductAsync(tenantId, productId, cancellationToken);
+        return activated ? Result.Success() : Result.Failure("Product was not found.");
+    }
+
+    public async Task<Result> DeleteProductAsync(
+        Guid tenantId, Guid productId, Guid? requestedByUserId, CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || productId == Guid.Empty)
+            return Result.Failure("TenantId and ProductId are required.");
+
+        var deleted = await repository.DeleteProductAsync(tenantId, productId, requestedByUserId, cancellationToken);
+        return deleted ? Result.Success() : Result.Failure("Product was not found.");
     }
 
     public async Task<Result<IReadOnlyCollection<ProductVariantDto>>> ListVariantsAsync(
@@ -333,6 +507,22 @@ public sealed class CatalogManagementService(ICatalogManagementRepository reposi
         return Result<IReadOnlyCollection<ProductVariantDto>>.Success(variants);
     }
 
+    public async Task<Result> DeleteProductVariantAsync(
+        Guid tenantId,
+        Guid productId,
+        Guid variantId,
+        Guid? requestedByUserId,
+        CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || productId == Guid.Empty || variantId == Guid.Empty)
+            return Result.Failure("TenantId, ProductId and VariantId are required.");
+
+        var deleted = await repository.DeleteProductVariantAsync(
+            tenantId, productId, variantId, requestedByUserId, cancellationToken);
+
+        return deleted ? Result.Success() : Result.Failure("Product variant was not found.");
+    }
+
     private async Task<string?> ValidateCategoryAsync(
         Guid tenantId, Guid? categoryId, string name, Guid? parentCategoryId,
         CancellationToken cancellationToken)
@@ -342,6 +532,18 @@ public sealed class CatalogManagementService(ICatalogManagementRepository reposi
 
         if (categoryId.HasValue && parentCategoryId == categoryId)
             return "A category cannot be its own parent.";
+
+        if (parentCategoryId is not null)
+        {
+            if (!await repository.CategoryExistsAsync(tenantId, parentCategoryId.Value, cancellationToken))
+                return "Parent category was not found.";
+
+            if (categoryId.HasValue
+                && await repository.CategoryIsDescendantAsync(tenantId, categoryId.Value, parentCategoryId.Value, cancellationToken))
+            {
+                return "A category cannot use one of its descendants as parent.";
+            }
+        }
 
         return null;
     }

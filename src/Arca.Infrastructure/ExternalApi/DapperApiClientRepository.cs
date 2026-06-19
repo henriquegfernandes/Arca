@@ -224,6 +224,231 @@ public sealed class DapperApiClientRepository(IDbConnectionFactory connectionFac
         return affected > 0;
     }
 
+    public async Task<bool> DeleteAsync(
+        DeleteApiClientCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            var existing = await connection.QuerySingleOrDefaultAsync<ApiClientExistingRow>(new CommandDefinition(
+                """
+                SELECT
+                    id AS Id,
+                    tenant_id AS TenantId,
+                    store_id AS StoreId,
+                    name AS Name,
+                    is_active AS IsActive,
+                    created_at AS CreatedAt,
+                    last_used_at AS LastUsedAt
+                FROM api_client
+                WHERE id = @ApiClientId
+                  AND tenant_id = @TenantId;
+                """,
+                new { command.ApiClientId, command.TenantId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (existing is null)
+            {
+                transaction.Rollback();
+                return false;
+            }
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                "UPDATE external_api_request_log SET api_client_id = NULL WHERE api_client_id = @ApiClientId;",
+                new { command.ApiClientId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM api_client_permission WHERE api_client_id = @ApiClientId;",
+                new { command.ApiClientId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                DELETE FROM api_client
+                WHERE id = @ApiClientId
+                  AND tenant_id = @TenantId;
+                """,
+                new { command.ApiClientId, command.TenantId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO audit_log (
+                    id, user_id, tenant_id, store_id, action, entity_name, entity_id,
+                    old_value, new_value, ip_address, user_agent, created_at
+                )
+                VALUES (
+                    @Id, @RequestedByUserId, @TenantId, @StoreId, 'api_clients.delete', 'ApiClient', @ApiClientId,
+                    @OldValue, NULL, @IpAddress, @UserAgent, @CreatedAt
+                );
+                """,
+                new
+                {
+                    Id = Guid.NewGuid(),
+                    command.RequestedByUserId,
+                    command.TenantId,
+                    existing.StoreId,
+                    command.ApiClientId,
+                    OldValue = $"Name={existing.Name}; StoreId={existing.StoreId}; IsActive={existing.IsActive}",
+                    command.IpAddress,
+                    command.UserAgent,
+                    CreatedAt = DateTime.UtcNow
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            transaction.Commit();
+            return true;
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
+    public async Task<ApiClientDto?> UpdateAsync(
+        UpdateApiClientCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        using var connection = connectionFactory.CreateConnection();
+        connection.Open();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            var existing = await connection.QuerySingleOrDefaultAsync<ApiClientExistingRow>(new CommandDefinition(
+                """
+                SELECT
+                    ac.id AS Id,
+                    ac.tenant_id AS TenantId,
+                    ac.store_id AS StoreId,
+                    ac.name AS Name,
+                    ac.is_active AS IsActive,
+                    ac.created_at AS CreatedAt,
+                    ac.last_used_at AS LastUsedAt
+                FROM api_client ac
+                WHERE ac.id = @ApiClientId
+                  AND ac.tenant_id = @TenantId;
+                """,
+                new { command.ApiClientId, command.TenantId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            if (existing is null)
+            {
+                transaction.Rollback();
+                return null;
+            }
+
+            var existingPermissions = (await connection.QueryAsync<string>(new CommandDefinition(
+                """
+                SELECT permission
+                FROM api_client_permission
+                WHERE api_client_id = @ApiClientId
+                ORDER BY permission;
+                """,
+                new { command.ApiClientId },
+                transaction,
+                cancellationToken: cancellationToken))).ToArray();
+
+            var now = DateTime.UtcNow;
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE api_client
+                SET name = @Name,
+                    store_id = @StoreId,
+                    is_active = @IsActive,
+                    updated_at = @UpdatedAt
+                WHERE id = @ApiClientId
+                  AND tenant_id = @TenantId;
+                """,
+                new
+                {
+                    command.ApiClientId,
+                    command.TenantId,
+                    command.StoreId,
+                    command.Name,
+                    command.IsActive,
+                    UpdatedAt = now
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                "DELETE FROM api_client_permission WHERE api_client_id = @ApiClientId;",
+                new { command.ApiClientId },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            foreach (var permission in command.Permissions)
+            {
+                await connection.ExecuteAsync(new CommandDefinition(
+                    """
+                    INSERT INTO api_client_permission (id, api_client_id, permission)
+                    VALUES (@Id, @ApiClientId, @Permission)
+                    ON CONFLICT (api_client_id, permission) DO NOTHING;
+                    """,
+                    new { Id = Guid.NewGuid(), command.ApiClientId, Permission = permission },
+                    transaction,
+                    cancellationToken: cancellationToken));
+            }
+
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                INSERT INTO audit_log (
+                    id, user_id, tenant_id, store_id, action, entity_name, entity_id,
+                    old_value, new_value, ip_address, user_agent, created_at
+                )
+                VALUES (
+                    @Id, @RequestedByUserId, @TenantId, @StoreId, 'api_clients.update', 'ApiClient', @ApiClientId,
+                    @OldValue, @NewValue, @IpAddress, @UserAgent, @CreatedAt
+                );
+                """,
+                new
+                {
+                    Id = Guid.NewGuid(),
+                    command.RequestedByUserId,
+                    command.TenantId,
+                    command.StoreId,
+                    command.ApiClientId,
+                    OldValue = $"Name={existing.Name}; StoreId={existing.StoreId}; IsActive={existing.IsActive}; Permissions={string.Join(",", existingPermissions)}",
+                    NewValue = $"Name={command.Name}; StoreId={command.StoreId}; IsActive={command.IsActive}; Permissions={string.Join(",", command.Permissions)}",
+                    command.IpAddress,
+                    command.UserAgent,
+                    CreatedAt = now
+                },
+                transaction,
+                cancellationToken: cancellationToken));
+
+            transaction.Commit();
+
+            return new ApiClientDto(
+                existing.Id,
+                existing.TenantId,
+                command.StoreId,
+                command.Name,
+                command.IsActive,
+                command.Permissions,
+                existing.CreatedAt,
+                existing.LastUsedAt);
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
+
     public async Task<ExternalApiClientContext?> AuthenticateAsync(
         string apiKeyHash,
         CancellationToken cancellationToken = default)
@@ -310,6 +535,17 @@ public sealed class DapperApiClientRepository(IDbConnectionFactory connectionFac
         public DateTime CreatedAt { get; init; }
         public DateTime? LastUsedAt { get; init; }
         public string? Permission { get; set; }
+    }
+
+    private sealed class ApiClientExistingRow
+    {
+        public Guid Id { get; init; }
+        public Guid TenantId { get; init; }
+        public Guid? StoreId { get; init; }
+        public string Name { get; init; } = string.Empty;
+        public bool IsActive { get; init; }
+        public DateTime CreatedAt { get; init; }
+        public DateTime? LastUsedAt { get; init; }
     }
 
     private sealed class ApiClientAuthRecord

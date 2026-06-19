@@ -19,11 +19,10 @@ public sealed class DapperTenantSetupRepository(IDbConnectionFactory connectionF
         KnownPermissions.UsersView,
         KnownPermissions.UsersCreate,
         KnownPermissions.UsersEdit,
+        KnownPermissions.UsersChangePassword,
         KnownPermissions.UsersDisable,
         KnownPermissions.UsersAssignRoles,
         KnownPermissions.UsersAssignStores,
-        KnownPermissions.RolesView,
-        KnownPermissions.RolesManage,
         KnownPermissions.CategoriesManage,
         KnownPermissions.ProductTypesManage,
         KnownPermissions.AttributesManage,
@@ -38,7 +37,6 @@ public sealed class DapperTenantSetupRepository(IDbConnectionFactory connectionF
         KnownPermissions.InventoryTransfer,
         KnownPermissions.ReportsView,
         KnownPermissions.ReportsExport,
-        KnownPermissions.AuditView,
         KnownPermissions.ApiKeysManage
     ];
 

@@ -50,11 +50,13 @@ public sealed class PermissionAuthorizationHandler(
 
         var tenantId =
             TryReadGuid(httpContext.GetRouteValue("tenantId")?.ToString()) ??
-            TryReadGuid(request.Query["tenantId"]);
+            TryReadGuid(request.Query["tenantId"]) ??
+            TryReadGuid(request.Headers["X-Tenant-Id"]);
 
         var storeId =
             TryReadGuid(httpContext.GetRouteValue("storeId")?.ToString()) ??
-            TryReadGuid(request.Query["storeId"]);
+            TryReadGuid(request.Query["storeId"]) ??
+            TryReadGuid(request.Headers["X-Store-Id"]);
 
         if (tenantId is not null && storeId is not null)
         {

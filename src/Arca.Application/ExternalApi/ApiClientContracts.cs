@@ -22,6 +22,28 @@ public sealed class CreateApiClientCommand
     public List<string> Permissions { get; init; } = [];
 }
 
+public sealed class UpdateApiClientCommand
+{
+    public Guid ApiClientId { get; init; }
+    public Guid TenantId { get; init; }
+    public Guid? StoreId { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public bool IsActive { get; init; }
+    public List<string> Permissions { get; init; } = [];
+    public Guid? RequestedByUserId { get; init; }
+    public string? IpAddress { get; init; }
+    public string? UserAgent { get; init; }
+}
+
+public sealed class DeleteApiClientCommand
+{
+    public Guid ApiClientId { get; init; }
+    public Guid TenantId { get; init; }
+    public Guid? RequestedByUserId { get; init; }
+    public string? IpAddress { get; init; }
+    public string? UserAgent { get; init; }
+}
+
 public sealed record CreateApiClientResult(
     Guid Id,
     Guid TenantId,

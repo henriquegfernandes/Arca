@@ -18,4 +18,8 @@ public interface IProductCatalogRepository
     Task<CreateProductResult> CreateProductAsync(
         CreateProductData productData,
         CancellationToken cancellationToken = default);
+
+    Task<CreateProductResult> AddGeneratedVariantsAsync(
+        AddProductVariantsData productData,
+        CancellationToken cancellationToken = default);
 }

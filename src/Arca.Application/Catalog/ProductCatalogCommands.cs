@@ -22,6 +22,12 @@ public sealed class CreateProductCommand : PreviewProductVariantsCommand
     public Guid? RequestedByUserId { get; init; }
 }
 
+public sealed class AddProductVariantsCommand : PreviewProductVariantsCommand
+{
+    public Guid ProductId { get; init; }
+    public Guid? RequestedByUserId { get; init; }
+}
+
 public sealed record ProductVariantPreviewResult(IReadOnlyCollection<GeneratedProductVariant> Variants);
 
 public sealed record CreateProductResult(
@@ -32,5 +38,10 @@ public sealed record CreatedProductVariant(Guid Id, string Sku, string Name);
 
 public sealed record CreateProductData(
     CreateProductCommand Command,
+    IReadOnlyCollection<SelectedVariantAttribute> VariantOptions,
+    IReadOnlyCollection<GeneratedProductVariant> Variants);
+
+public sealed record AddProductVariantsData(
+    AddProductVariantsCommand Command,
     IReadOnlyCollection<SelectedVariantAttribute> VariantOptions,
     IReadOnlyCollection<GeneratedProductVariant> Variants);

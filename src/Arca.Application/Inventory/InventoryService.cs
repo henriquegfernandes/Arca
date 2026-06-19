@@ -194,6 +194,127 @@ public sealed class InventoryService(IInventoryRepository repository)
             null));
     }
 
+    public async Task<Result<PagedResult<InventoryProductSummaryDto>>> ListInventoryProductsAsync(
+        Guid tenantId,
+        Guid storeId,
+        InventoryProductFilters filters,
+        PageRequest pageRequest,
+        CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || storeId == Guid.Empty)
+        {
+            return Result<PagedResult<InventoryProductSummaryDto>>.Failure("TenantId and StoreId are required.");
+        }
+
+        if (filters.StockLocationId.HasValue
+            && !await repository.StockLocationBelongsToStoreAsync(tenantId, storeId, filters.StockLocationId.Value, cancellationToken))
+        {
+            return Result<PagedResult<InventoryProductSummaryDto>>.Failure("Stock location was not found for this tenant/store.");
+        }
+
+        var products = await repository.ListInventoryProductsAsync(tenantId, storeId, filters, pageRequest, cancellationToken);
+        return Result<PagedResult<InventoryProductSummaryDto>>.Success(products);
+    }
+
+    public async Task<Result<InventoryProductDetailsDto>> GetInventoryProductDetailsAsync(
+        Guid tenantId,
+        Guid storeId,
+        Guid productId,
+        Guid? stockLocationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (tenantId == Guid.Empty || storeId == Guid.Empty || productId == Guid.Empty)
+        {
+            return Result<InventoryProductDetailsDto>.Failure("TenantId, StoreId and ProductId are required.");
+        }
+
+        if (stockLocationId.HasValue
+            && !await repository.StockLocationBelongsToStoreAsync(tenantId, storeId, stockLocationId.Value, cancellationToken))
+        {
+            return Result<InventoryProductDetailsDto>.Failure("Stock location was not found for this tenant/store.");
+        }
+
+        var product = await repository.GetInventoryProductDetailsAsync(tenantId, storeId, productId, stockLocationId, cancellationToken);
+        return product is null
+            ? Result<InventoryProductDetailsDto>.Failure("Product was not found.")
+            : Result<InventoryProductDetailsDto>.Success(product);
+    }
+
+    public async Task<Result<IReadOnlyCollection<InventoryOperationResult>>> RegisterMovementAsync(
+        StockMovementRequest command,
+        CancellationToken cancellationToken = default)
+    {
+        if (command.Items.Count == 0)
+        {
+            return Result<IReadOnlyCollection<InventoryOperationResult>>.Failure("At least one movement item is required.");
+        }
+
+        var results = new List<InventoryOperationResult>();
+        var type = command.Type.Trim();
+        foreach (var item in command.Items)
+        {
+            var itemStockLocationId = item.StockLocationId ?? command.StockLocationId;
+            Result<InventoryOperationResult> result;
+            if (type.Equals("Entry", StringComparison.OrdinalIgnoreCase) || type.Equals("Purchase", StringComparison.OrdinalIgnoreCase))
+            {
+                result = await RegisterEntryAsync(new RegisterStockEntryCommand
+                {
+                    TenantId = command.TenantId,
+                    StoreId = command.StoreId,
+                    StockLocationId = itemStockLocationId,
+                    ProductVariantId = item.ProductVariantId,
+                    Quantity = item.Quantity,
+                    UnitCost = item.UnitCost,
+                    Reason = command.Reason,
+                    Notes = command.Notes,
+                    RequestedByUserId = command.RequestedByUserId
+                }, cancellationToken);
+            }
+            else if (type.Equals("Exit", StringComparison.OrdinalIgnoreCase) || ExitMovementTypes.Contains(type))
+            {
+                result = await RegisterExitAsync(new RegisterStockExitCommand
+                {
+                    TenantId = command.TenantId,
+                    StoreId = command.StoreId,
+                    StockLocationId = itemStockLocationId,
+                    ProductVariantId = item.ProductVariantId,
+                    Quantity = item.Quantity,
+                    MovementType = ExitMovementTypes.Contains(type) ? type : "Sale",
+                    Reason = command.Reason,
+                    Notes = command.Notes,
+                    RequestedByUserId = command.RequestedByUserId
+                }, cancellationToken);
+            }
+            else if (type.Equals("Adjust", StringComparison.OrdinalIgnoreCase) || type.Equals("Adjustment", StringComparison.OrdinalIgnoreCase))
+            {
+                result = await AdjustAsync(new AdjustStockCommand
+                {
+                    TenantId = command.TenantId,
+                    StoreId = command.StoreId,
+                    StockLocationId = itemStockLocationId,
+                    ProductVariantId = item.ProductVariantId,
+                    NewQuantity = item.Quantity,
+                    Reason = command.Reason,
+                    Notes = command.Notes,
+                    RequestedByUserId = command.RequestedByUserId
+                }, cancellationToken);
+            }
+            else
+            {
+                return Result<IReadOnlyCollection<InventoryOperationResult>>.Failure("Type must be Entry, Exit or Adjustment.");
+            }
+
+            if (result.IsFailure || result.Value is null)
+            {
+                return Result<IReadOnlyCollection<InventoryOperationResult>>.Failure(result.Error ?? "Inventory movement failed.");
+            }
+
+            results.Add(result.Value);
+        }
+
+        return Result<IReadOnlyCollection<InventoryOperationResult>>.Success(results);
+    }
+
     public async Task<Result<IReadOnlyCollection<StockLocationDto>>> ListStockLocationsAsync(
         Guid tenantId,
         Guid storeId,

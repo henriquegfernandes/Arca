@@ -10,6 +10,7 @@ public sealed record TenantSummaryDto(
     string SetupStatus,
     string Currency,
     string TimeZone,
+    Guid? PrimaryStoreId,
     int StoreCount,
     DateTime CreatedAt);
 
@@ -22,6 +23,7 @@ public sealed record TenantDetailsDto(
     string? ContactEmail,
     string? Phone,
     string? MainSegment,
+    Guid? PrimaryStoreId,
     bool IsActive,
     string SetupStatus,
     TenantSettingsDto Settings,
@@ -86,6 +88,36 @@ public sealed class UpdateStoreCommand
     public string? State { get; init; }
     public string? ZipCode { get; init; }
     public string Type { get; init; } = "Physical";
+    public Guid? RequestedByUserId { get; init; }
+    public string? IpAddress { get; init; }
+    public string? UserAgent { get; init; }
+}
+
+public sealed class UpdateTenantCommand
+{
+    public Guid TenantId { get; init; }
+    public CompanySetupStep Company { get; init; } = new();
+    public TenantSettingsSetupStep Settings { get; init; } = new();
+    public Guid? PrimaryStoreId { get; init; }
+    public Guid? RequestedByUserId { get; init; }
+    public string? IpAddress { get; init; }
+    public string? UserAgent { get; init; }
+}
+
+public sealed class ChangeTenantStatusCommand
+{
+    public Guid TenantId { get; init; }
+    public bool IsActive { get; init; }
+    public Guid? RequestedByUserId { get; init; }
+    public string? IpAddress { get; init; }
+    public string? UserAgent { get; init; }
+}
+
+public sealed class ChangeStoreStatusCommand
+{
+    public Guid TenantId { get; init; }
+    public Guid StoreId { get; init; }
+    public bool IsActive { get; init; }
     public Guid? RequestedByUserId { get; init; }
     public string? IpAddress { get; init; }
     public string? UserAgent { get; init; }

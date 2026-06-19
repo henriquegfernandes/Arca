@@ -7,7 +7,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Arca.Web.Controllers;
 
 [ApiController]
-[Authorize]
+[Authorize(Policy = "SuperAdmin")]
 [Route("api/admin/roles")]
 public sealed class AdminRolesController(
     RoleManagementService roleManagementService,
@@ -101,6 +101,41 @@ public sealed class AdminRolesController(
     public async Task<IActionResult> Disable(Guid roleId, CancellationToken cancellationToken)
     {
         var result = await roleManagementService.DisableRoleAsync(roleId, cancellationToken);
+        if (result.IsFailure)
+        {
+            return BadRequest(new { error = result.Error });
+        }
+
+        return NoContent();
+    }
+
+    [HttpPost("{roleId:guid}/activate")]
+    [Authorize(Policy = KnownPermissions.RolesManage)]
+    public async Task<IActionResult> Activate(Guid roleId, CancellationToken cancellationToken)
+    {
+        var result = await roleManagementService.ActivateRoleAsync(roleId, cancellationToken);
+        if (result.IsFailure)
+        {
+            return BadRequest(new { error = result.Error });
+        }
+
+        return NoContent();
+    }
+
+    [HttpDelete("{roleId:guid}/delete")]
+    [Authorize(Policy = KnownPermissions.RolesManage)]
+    public async Task<IActionResult> Delete(Guid roleId, CancellationToken cancellationToken)
+    {
+        var result = await roleManagementService.DeleteRoleAsync(
+            new UpdateRolePermissionsCommand
+            {
+                RoleId = roleId,
+                RequestedByUserId = currentUserService.UserId,
+                IpAddress = HttpContext.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = Request.Headers.UserAgent.ToString()
+            },
+            cancellationToken);
+
         if (result.IsFailure)
         {
             return BadRequest(new { error = result.Error });
