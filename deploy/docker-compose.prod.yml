@@ -1,60 +1,193 @@
 services:
-  arca-web:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: arca-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - arca_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Minio — S3-compatible object storage
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: arca-minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"   # S3 API — proxied by Nginx for public file access
+      - "9001:9001"   # Web console — proxied by Nginx at minio.seudominio.com
+    networks:
+      - arca_internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Minio setup — cria o bucket e define política de leitura pública.
+  # Roda uma única vez após o Minio estar healthy; reinicia em caso de falha.
+  # ---------------------------------------------------------------------------
+  minio-setup:
+    image: minio/mc:latest
+    container_name: arca-minio-setup
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+        mc mb --ignore-existing local/$${MINIO_BUCKET} &&
+        mc anonymous set download local/$${MINIO_BUCKET} &&
+        echo 'Bucket ready.'
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+    networks:
+      - arca_internal
+    restart: on-failure
+
+  # ---------------------------------------------------------------------------
+  # Arca.Web — admin dashboard + tenant setup wizard
+  # Aplica as migrations do banco na primeira subida.
+  # ---------------------------------------------------------------------------
+  web:
     image: arca-web:latest
     build:
       context: ..
       dockerfile: Dockerfile.web
+    container_name: arca-web
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
-      Secrets__KeyPerFile__Enabled: "true"
-      Secrets__KeyPerFile__Path: /run/secrets
+
+      # Banco de dados
+      ConnectionStrings__DefaultConnection: >-
+        Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+
+      # Migrations automáticas na subida
       Database__ApplyMigrationsOnStartup: "true"
       Database__CreateDatabaseIfMissing: "false"
+
+      # Storage — Minio via rede interna Docker
       Storage__Provider: S3
       Storage__S3__ForcePathStyle: "true"
-      Storage__S3__ServiceUrl: ""
-      Storage__S3__PublicBaseUrl: ""
+      Storage__S3__ServiceUrl: http://minio:9000
+      Storage__S3__PublicBaseUrl: ${STORAGE_PUBLIC_URL}
+      Storage__S3__BucketName: ${MINIO_BUCKET}
+      Storage__S3__Region: us-east-1
+      Storage__S3__AccessKey: ${MINIO_ROOT_USER}
+      Storage__S3__SecretKey: ${MINIO_ROOT_PASSWORD}
+
+      # Seed do SuperAdmin na primeira subida
+      Seed__SuperAdmin__Enabled: "true"
+      Seed__SuperAdmin__Email: ${ADMIN_EMAIL}
+      Seed__SuperAdmin__Password: ${ADMIN_PASSWORD}
+
+      # Rate limiting
       RateLimiting__Admin__PermitLimit: "300"
       RateLimiting__Admin__WindowMinutes: "1"
       RateLimiting__Auth__PermitLimit: "20"
       RateLimiting__Auth__WindowMinutes: "1"
+
+      # Email SMTP (opcional — deixe vazio para desativar)
+      Email__Smtp__Host: ${SMTP_HOST:-}
+      Email__Smtp__Port: ${SMTP_PORT:-587}
+      Email__Smtp__Username: ${SMTP_USER:-}
+      Email__Smtp__Password: ${SMTP_PASSWORD:-}
+      Email__From: ${EMAIL_FROM:-noreply@arca.app}
+
+      # URL pública da aplicação (usada nos links de e-mail)
+      App__BaseUrl: ${APP_BASE_URL}
+
+      # Desativar carregamento de secrets por arquivo (usamos env vars)
+      Secrets__KeyPerFile__Enabled: "false"
     ports:
       - "8080:8080"
-    secrets:
-      - ConnectionStrings__DefaultConnection
-      - Storage__S3__BucketName
-      - Storage__S3__Region
-      - Storage__S3__AccessKey
-      - Storage__S3__SecretKey
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - arca_internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
     restart: unless-stopped
 
-  arca-api:
+  # ---------------------------------------------------------------------------
+  # Arca.Api — API pública para integrações externas
+  # Aguarda o web estar healthy para garantir que as migrations já rodaram.
+  # ---------------------------------------------------------------------------
+  api:
     image: arca-api:latest
     build:
       context: ..
       dockerfile: Dockerfile.api
+    container_name: arca-api
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
-      Secrets__KeyPerFile__Enabled: "true"
-      Secrets__KeyPerFile__Path: /run/secrets
+
+      ConnectionStrings__DefaultConnection: >-
+        Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+
       RateLimiting__ExternalApi__PermitLimit: "120"
       RateLimiting__ExternalApi__WindowMinutes: "1"
+
+      Secrets__KeyPerFile__Enabled: "false"
     ports:
       - "8081:8080"
-    secrets:
-      - ConnectionStrings__DefaultConnection
+    depends_on:
+      postgres:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    networks:
+      - arca_internal
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
     restart: unless-stopped
 
-secrets:
-  ConnectionStrings__DefaultConnection:
-    file: ./secrets/ConnectionStrings__DefaultConnection
-  Storage__S3__BucketName:
-    file: ./secrets/Storage__S3__BucketName
-  Storage__S3__Region:
-    file: ./secrets/Storage__S3__Region
-  Storage__S3__AccessKey:
-    file: ./secrets/Storage__S3__AccessKey
-  Storage__S3__SecretKey:
-    file: ./secrets/Storage__S3__SecretKey
+# -----------------------------------------------------------------------------
+# Rede interna — os containers se comunicam pelo nome do serviço.
+# Nenhuma porta de banco ou Minio fica exposta ao host além das declaradas acima.
+# -----------------------------------------------------------------------------
+networks:
+  arca_internal:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  minio_data:
